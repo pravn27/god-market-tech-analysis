@@ -1,20 +1,27 @@
 # TradingView connection runbook
 
+## Connection priority
+
+1. Official TradingView MCP: primary source, authenticated through OAuth 2.1.
+2. Existing local TradingView Desktop/CDP bridge: fallback only.
+
+The dashboard must display the active source. A fallback is a visible operational event, not a hidden implementation detail.
+
 ## Healthy state
 
-- TradingView Desktop is open and logged in.
-- The local MCP bridge is available.
-- The backend reports a recent successful chart-context update.
+- The official TradingView MCP is authenticated and responds, **or** the fallback Desktop bridge is available.
+- If fallback is active, TradingView Desktop is open and its local debugging connection is available.
+- The backend reports a recent successful chart-context update and source ID.
 - The dashboard displays `Connected` with the source timestamp.
 
 ## If connection is unavailable
 
 1. Do not act on stale setup results.
-2. Confirm TradingView Desktop is open.
-3. Confirm the MCP bridge and its local debugging/connection requirements are available.
-4. Inspect the backend health view and logs for the failing component.
-5. Refresh chart context only after the connection is restored.
-6. Confirm a current timestamp before resuming evaluation.
+2. Check the official MCP authentication and response state first.
+3. If the primary source is unavailable, determine whether the approved Desktop fallback can provide the required context.
+4. When fallback is used, confirm TradingView Desktop and its local debugging/connection requirements are available.
+5. Inspect the backend health view and logs for the failing component.
+6. Confirm a current timestamp and source ID before resuming evaluation.
 
 ## Safety rule
 

@@ -18,7 +18,7 @@ For each configured symbol, the user can quickly understand:
 
 - Local browser dashboard served on the same machine.
 - macOS and Windows support.
-- TradingView Desktop context through the locally available MCP bridge.
+- Official TradingView MCP as the primary integration, with the existing local TradingView Desktop bridge as an approved fallback.
 - Multi-timeframe analysis: Monthly, Weekly, Daily, 4H, 1H, and 15m.
 - Configurable manual trade setups with mandatory and weighted rules.
 - Setup readiness, status history, connection health, and local notifications.

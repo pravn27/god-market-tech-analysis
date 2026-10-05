@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 
 from god_market_api.app import create_app
 from god_market_api.models import ChartContext, DataSource, SourceHealth, SourceState
+from god_market_api.providers import OfficialMCPProvider
 
 
 class ReadyProvider:
@@ -58,7 +59,7 @@ def test_chart_context_preserves_source_and_timeframe():
 
 
 def test_unconfigured_source_returns_safe_service_unavailable_response():
-    client = TestClient(create_app())
+    client = TestClient(create_app(provider=OfficialMCPProvider()))
 
     response = client.get("/api/v1/chart-context/NSE:NIFTY", params={"timeframe": "1h"})
 

@@ -2,7 +2,11 @@
 
 ## Security model
 
-The local API service authenticates directly to the official TradingView MCP using OAuth 2.1. It uses the MCP Python SDK's authorization-code flow with PKCE and dynamic client registration when supported by the authorization server.
+The local API service authenticates directly to the official TradingView MCP using OAuth 2.1. It owns the authorization-code flow with PKCE and dynamic client registration; the MCP Python SDK is used only for the MCP transport after authorization.
+
+## Local application authorization
+
+The service uses TradingView OAuth 2.1. On the first explicit authorization request, it dynamically registers a local public OAuth client at TradingView's advertised registration endpoint. The resulting client identifier and, after approval, OAuth tokens are stored only in the operating-system keychain. The service does not read or reuse Codex's OAuth credentials.
 
 - Redirect URI: `http://127.0.0.1:8000/api/v1/oauth/official/callback`
 - Credential storage: the current user's operating-system keyring
@@ -12,6 +16,7 @@ The local API service authenticates directly to the official TradingView MCP usi
 ## User-approved authorization flow
 
 1. Start the local API service on the configured localhost port.
+   Use `uv run uvicorn god_market_api.app:app --reload --no-access-log` during OAuth so the callback's authorization code is not written to a terminal access log.
 2. Call `POST /api/v1/oauth/official/start`.
 3. Review the generated TradingView authorization URL.
 4. Obtain explicit user approval immediately before opening that URL.
@@ -21,7 +26,8 @@ The local API service authenticates directly to the official TradingView MCP usi
 
 ## Failure handling
 
-- If the callback state is missing or mismatched, the SDK rejects the exchange.
+- If the callback state is missing or mismatched, the service rejects the exchange.
 - If the keyring is unavailable, no credentials are written; report the failure to the user.
 - If authorization fails or is cancelled, retain no fabricated ready state; show the official source as unavailable.
 - Do not expose authorization codes, tokens, client secrets, or full authorization URLs in logs.
+- If TradingView temporarily rate-limits the technical-rating tool, return current OHLCV with an explicit partial-data warning; do not invent technical values.

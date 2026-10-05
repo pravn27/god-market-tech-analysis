@@ -46,4 +46,4 @@ For each local release, record included stories, validation results, known limit
 
 ## Current delivery checkpoint
 
-Phase 1B establishes the typed local API contract, application-owned OAuth flow, and safe unavailable-data handling. The next story maps authenticated official-MCP responses into `ChartContext`; no rule calculation or dashboard work should depend on a live connector until that story passes validation.
+Phase 1C adds a contract-tested adapter that maps official-MCP OHLCV and single-timeframe technical responses into `ChartContext`. It does not evaluate rules or synthesize trade signals. The next story validates an explicitly authorized live connection and records source freshness before any rule calculation or dashboard work depends on it.

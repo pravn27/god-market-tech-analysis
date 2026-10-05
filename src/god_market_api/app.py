@@ -13,8 +13,8 @@ def create_app(
     provider: Optional[ChartContextProvider] = None,
     oauth: Optional[OfficialMCPOAuthCoordinator] = None,
 ) -> FastAPI:
-    active_provider = provider or OfficialMCPProvider()
     oauth_coordinator = oauth or OfficialMCPOAuthCoordinator()
+    active_provider = provider or OfficialMCPProvider(tool_caller=oauth_coordinator)
     app = FastAPI(
         title="God Market MCP API",
         version="0.1.0",

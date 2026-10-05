@@ -14,7 +14,7 @@
 | Resolve a trading symbol | Symbol search returns routable `EXCHANGE:TICKER` symbols | The symbol configuration must persist the resolved exchange-qualified symbol. |
 | Quotes and screener fields | Single-symbol and batch symbol data; batch limit is 50 symbols | The monitor must batch requests and treat missing symbols as unavailable, never as zero. |
 | Candle history | OHLCV is available with fixed intervals and up to 5,000 bars | The backend can calculate historical indicators and chart structure from normalized OHLCV. |
-| Technical snapshot | Detailed technical rating is available for one timeframe per call, from 1 minute to 1 month | MTF Confluence Board must request/evaluate each timeframe separately. |
+| Technical snapshot | Detailed technical rating is available for one timeframe per call, from 1 minute to 1 month | MTF Confluence Board must request/evaluate each timeframe separately. The adapter maps the OHLCV monthly code `M` to the technicals-tool monthly code `1M`. |
 | MTF aggregate | No dedicated MTF aggregate tool was found | The rules engine, not the connector, combines timeframe results. |
 | Historical indicator series | No dedicated indicator-history tool was found | Calculate RSI, MACD, DMI/ADX, EMAs, Bollinger Bands, and Stochastic from OHLCV in the rules layer. |
 | Watchlist reads | List and retrieve owned or public shared watchlists | Use explicit read-only list/get operations. Do not call active-watchlist operations without confirming their behaviour. |

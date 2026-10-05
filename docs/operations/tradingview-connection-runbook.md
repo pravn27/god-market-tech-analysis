@@ -7,6 +7,8 @@
 
 The dashboard must display the active source. A fallback is a visible operational event, not a hidden implementation detail.
 
+Verified official-connector limits and supported read operations are recorded in the [capability matrix](../architecture/tradingview-mcp-capability-matrix.md).
+
 ## Healthy state
 
 - The official TradingView MCP is authenticated and responds, **or** the fallback Desktop bridge is available.

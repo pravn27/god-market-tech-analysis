@@ -43,3 +43,7 @@ Epic → Feature → Story → Task
 ## Suggested release evidence
 
 For each local release, record included stories, validation results, known limitations, connection prerequisites, and rollback steps.
+
+## Current delivery checkpoint
+
+Phase 1B establishes the typed local API contract, application-owned OAuth flow, and safe unavailable-data handling. The next story maps authenticated official-MCP responses into `ChartContext`; no rule calculation or dashboard work should depend on a live connector until that story passes validation.

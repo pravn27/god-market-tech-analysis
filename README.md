@@ -11,7 +11,7 @@ This repository is the home for the God Market technical-analysis workflow, its 
 
 ## Status
 
-The repository is in Phase 0: the documentation-first foundation. No dashboard, market-data connector, broker integration, or trading automation is implemented.
+The repository is in Phase 1B: the local read-only MCP API service foundation. It exposes source-attributed health and `ChartContext` contracts, plus an application-owned OAuth flow. It does not yet retrieve live chart data through the provider adapter.
 
 ## Structure
 
@@ -25,6 +25,32 @@ docs/
 ├── knowledge-base/   Stable methodology definitions
 └── delivery/         GitHub Projects model and release evidence
 ```
+
+## Local API service
+
+Requires Python 3.10 or newer. The project uses the official MCP Python SDK, which does not support Python 3.9.
+
+```bash
+uv sync --group dev
+uv run uvicorn god_market_api.app:app --reload
+```
+
+The API is local-only. Visit `http://127.0.0.1:8000/docs` for its generated API documentation.
+
+- `GET /health` reports source readiness.
+- `GET /api/v1/chart-context/{symbol}?timeframe=1h` returns a normalized chart context when an authenticated provider is configured.
+- Until the official-MCP data adapter is authenticated and implemented, chart-context requests safely return `503` rather than fabricated or stale data.
+
+## Official MCP authorization
+
+The local service has its own OAuth flow and never reuses the Codex application's OAuth credentials. It stores its dynamically registered client information and refresh tokens in the local operating-system keyring.
+
+1. Start the local API service.
+2. Request `POST /api/v1/oauth/official/start`.
+3. Review the returned authorization URL and open it only after the user approves the TradingView connection.
+4. TradingView redirects to the local callback endpoint. The service exchanges the code, stores credentials in the keyring, and discovers read-only MCP tools.
+
+No OAuth interaction begins merely by starting the service.
 
 Start with the [documentation map](docs/README.md), then review the [high-level design](docs/architecture/high-level-design.md) and [delivery model](docs/delivery/github-project-model.md).
 

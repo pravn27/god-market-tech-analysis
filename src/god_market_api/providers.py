@@ -203,15 +203,33 @@ class OfficialMCPProvider:
         )
 
     async def get_chart_context(self, symbol: str, timeframe: str) -> ChartContext:
+        context = await self.get_price_context(symbol, timeframe, candle_count=self._candle_count)
+        technicals = None
+        warnings: list[str] = []
+        try:
+            technical_result = await self._tool_caller.call_tool(
+                "get_technicals_rating", {"symbol": symbol, "interval": technicals_interval(context.timeframe)}
+            )
+            technicals = _technical_snapshot(_decode_tool_result(technical_result))
+        except Exception:
+            warnings.append("The official technical snapshot is temporarily unavailable; OHLCV context is still current.")
+        return context.model_copy(update={"technicals": technicals, "warnings": warnings})
+
+    async def get_price_context(
+        self, symbol: str, timeframe: str, *, candle_count: int = 2
+    ) -> ChartContext:
+        """Return normalized OHLCV only for breadth and performance calculations."""
         if self._tool_caller is None:
             raise DataSourceUnavailableError(
                 "Official TradingView MCP is not configured for the local service. No chart context was returned."
             )
+        if candle_count < 1:
+            raise ValueError("candle_count must be at least 1.")
 
         interval = normalize_timeframe(timeframe)
         try:
             ohlcv_result = await self._tool_caller.call_tool(
-                "get_ohlcv", {"symbol": symbol, "interval": interval, "count": self._candle_count}
+                "get_ohlcv", {"symbol": symbol, "interval": interval, "count": candle_count}
             )
         except DataSourceUnavailableError:
             raise
@@ -221,15 +239,6 @@ class OfficialMCPProvider:
             ) from error
 
         candles = _candles(_decode_tool_result(ohlcv_result))
-        technicals = None
-        warnings: list[str] = []
-        try:
-            technical_result = await self._tool_caller.call_tool(
-                "get_technicals_rating", {"symbol": symbol, "interval": technicals_interval(interval)}
-            )
-            technicals = _technical_snapshot(_decode_tool_result(technical_result))
-        except Exception:
-            warnings.append("The official technical snapshot is temporarily unavailable; OHLCV context is still current.")
         source_timestamp = candles[-1].timestamp
         self._last_success_at = datetime.now(timezone.utc)
         return ChartContext(
@@ -239,6 +248,4 @@ class OfficialMCPProvider:
             source_timestamp=source_timestamp,
             freshness_state=SourceState.READY,
             candles=candles,
-            technicals=technicals,
-            warnings=warnings,
         )

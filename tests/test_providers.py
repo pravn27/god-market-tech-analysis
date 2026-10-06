@@ -91,6 +91,26 @@ def test_provider_keeps_current_ohlcv_when_the_technical_snapshot_is_unavailable
     ]
 
 
+def test_provider_can_fetch_a_small_ohlcv_only_context_for_market_breadth():
+    caller = FakeToolCaller(
+        {
+            "get_ohlcv": {
+                "bars": [
+                    {"t": 1735689600, "o": 100, "h": 106, "l": 99, "c": 104},
+                    {"t": 1735776000, "o": 104, "h": 109, "l": 103, "c": 108},
+                ]
+            }
+        }
+    )
+    provider = OfficialMCPProvider(tool_caller=caller, candle_count=500)
+
+    context = asyncio.run(provider.get_price_context("NSE:NIFTY", "daily", candle_count=2))
+
+    assert context.technicals is None
+    assert len(context.candles) == 2
+    assert caller.calls == [("get_ohlcv", {"symbol": "NSE:NIFTY", "interval": "1D", "count": 2})]
+
+
 @pytest.mark.parametrize(
     ("input_timeframe", "expected"),
     [("daily", "1D"), ("1d", "1D"), ("weekly", "1W"), ("monthly", "M"), ("4h", "4h")],

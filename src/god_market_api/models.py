@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, model_validator
 class DataSource(str, Enum):
     OFFICIAL_MCP = "official_mcp"
     DESKTOP_BRIDGE = "desktop_bridge"
+    FIXTURE = "fixture"
 
 
 class SourceState(str, Enum):

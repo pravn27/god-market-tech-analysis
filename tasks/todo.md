@@ -54,15 +54,15 @@
 
 **Acceptance criteria:**
 
-- [ ] Fixture data returns ordered groups and explicit breadth evidence.
-- [ ] Partial/unavailable items remain visible and are excluded from directional counts with an explanation.
-- [ ] Existing chart-context and MTF endpoints do not regress.
+- [x] Fixture data returns ordered groups and explicit breadth evidence.
+- [x] Partial/unavailable items remain visible and are excluded from directional counts with an explanation.
+- [x] Existing chart-context and MTF endpoints do not regress.
 
 **Verification:**
 
-- [ ] Tests pass: `uv run pytest -q tests/test_global_market_api.py`
-- [ ] Existing tests pass: `uv run pytest -q`
-- [ ] Manual check: inspect the generated local OpenAPI contract.
+- [x] Tests pass: `uv run pytest -q tests/test_global_market_api.py`
+- [x] Existing tests pass: `uv run pytest -q`
+- [x] Manual check: inspect the generated local OpenAPI contract.
 
 **Dependencies:** Task 2
 
@@ -80,14 +80,14 @@
 
 **Acceptance criteria:**
 
-- [ ] The frontend builds, type-checks, and renders a route shell locally.
-- [ ] Ant Design tokens provide the `PS ASTA Setup` black-theme foundation.
-- [ ] Frontend has no TradingView credentials, MCP connection, or direct source request.
+- [x] The frontend builds, type-checks, and renders a route shell locally.
+- [x] Ant Design tokens provide the `PS ASTA Setup` black-theme foundation.
+- [x] Frontend has no TradingView credentials, MCP connection, or direct source request.
 
 **Verification:**
 
-- [ ] Frontend unit tests pass.
-- [ ] `npm run lint`, `npm run typecheck`, and `npm run build` pass in `frontend/`.
+- [x] Frontend unit tests pass.
+- [x] `npm run lint`, `npm run typecheck`, and `npm run build` pass in `frontend/`.
 
 **Dependencies:** Task 3
 
@@ -107,15 +107,15 @@
 
 **Acceptance criteria:**
 
-- [ ] User can open the Global Market route and see Daily breadth plus ordered groups.
-- [ ] Source timestamp, freshness, and unavailable state are visible.
-- [ ] Refresh refetches only the local API and never reaches TradingView from the browser.
+- [x] User can open the Global Market route and see Daily breadth plus ordered groups.
+- [x] Source timestamp, freshness, and unavailable state are visible.
+- [x] Refresh refetches only the local API and never reaches TradingView from the browser.
 
 **Verification:**
 
-- [ ] Frontend component tests pass.
-- [ ] Backend tests and frontend lint/typecheck/build pass.
-- [ ] Manual check: fixture-backed dashboard works locally.
+- [x] Frontend component tests pass.
+- [x] Backend tests and frontend lint/typecheck/build pass.
+- [x] Manual check: fixture-backed dashboard works locally.
 
 **Dependencies:** Tasks 3–4
 
@@ -133,14 +133,48 @@
 
 - [x] Tasks 1–2 are complete.
 - [x] Backend tests pass.
-- [ ] Human approves the response contract before endpoint/UI implementation.
+- [x] Human approves the response contract before endpoint/UI implementation.
 
 ## Checkpoint: daily dashboard
 
-- [ ] Tasks 3–5 are complete.
-- [ ] Backend and frontend automated checks pass.
+- [x] Tasks 3–5 are complete.
+- [x] Backend and frontend automated checks pass.
 - [ ] Human approves the dashboard hierarchy and source-status treatment.
 
-## Later tasks
+## Task 7: Global Market usability controls
 
-Tasks 6–8 in [plan.md](plan.md) cover approved live-source integration, dashboard controls/detail evidence, and the watchlist coverage dry-run. They will be detailed in this checklist when the Daily dashboard checkpoint is approved.
+**Description:** Add local-only section filtering, table/card presentation, and an evidence detail drawer to the existing Daily Global Market page.
+
+**Acceptance criteria:**
+
+- [x] User can limit the visible dashboard to one recorded `PS_Global_Indices` section without changing watchlist data.
+- [x] User can switch between a detailed table and compact cards.
+- [x] User can inspect an instrument's source, freshness, price evidence, and unavailable reason in a drawer.
+- [x] The browser continues to call only the local FastAPI endpoint.
+
+**Verification:**
+
+- [x] Frontend component tests cover filtering, card view, and evidence details.
+- [x] Frontend lint, typecheck, and production build pass.
+- [x] Local browser check confirms the controls and drawer render against live API results.
+
+**Files touched:**
+
+- `frontend/src/features/global-market/GlobalMarketPage.tsx`
+- `frontend/src/features/global-market/MarketGroupTable.tsx`
+- `frontend/src/features/global-market/MarketGroupCards.tsx`
+- `frontend/src/features/global-market/MarketInstrumentDetailDrawer.tsx`
+- `frontend/src/features/global-market/GlobalMarketPage.test.tsx`
+
+## Task 8: PS_Global_Indices coverage dry-run
+
+**Description:** Compare the recorded read-only watchlist snapshot with a compact global-sentiment coverage checklist and prepare a non-mutating proposal.
+
+**Status:** Approval-ready dry-run produced. TradingView Desktop MCP re-read the existing 16 symbols and validated exact add candidates through symbol search.
+
+- [x] Preserved the exact existing section names, section order, and recorded symbols.
+- [x] Identified coverage gaps and validated exact TradingView symbols without guessing prefixes.
+- [x] Produced no add, delete, or reorder action.
+- [ ] Obtain the user's confirmation for the exact add set before changing the watchlist.
+
+See [coverage dry-run](../docs/validation/global-market-coverage-dry-run-2026-10-06.md).

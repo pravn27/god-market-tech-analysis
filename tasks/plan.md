@@ -42,13 +42,13 @@ Desktop bridge readiness + read-only watchlist snapshot
 
 - [x] Desktop/watchlist availability is known and recorded.
 - [x] Fixture-backed contract preserves group order and unavailable evidence.
-- [ ] Human reviews the response shape before live dashboard integration.
+- [x] Human reviews the response shape before live dashboard integration.
 
 ### Phase 2: Daily vertical slice
 
-- [ ] Task 3: Implement the fixture-backed backend global-market snapshot use case and additive local API endpoint.
-- [ ] Task 4: Scaffold the TypeScript React/Vite application with the `PS ASTA Setup` Ant Design dark token theme.
-- [ ] Task 5: Implement the Daily Global Market dashboard: summary, group/table display, refresh, loading, empty, error, and partial states.
+- [x] Task 3: Implement the fixture-backed backend global-market snapshot use case and additive local API endpoint.
+- [x] Task 4: Scaffold the TypeScript React/Vite application with the `PS ASTA Setup` Ant Design dark token theme.
+- [x] Task 5: Implement the Daily Global Market dashboard: summary, group/table display, refresh, loading, empty, error, and partial states.
 
 ### Checkpoint: daily dashboard
 
@@ -58,8 +58,8 @@ Desktop bridge readiness + read-only watchlist snapshot
 
 ### Phase 3: Live source and usability
 
-- [ ] Task 6: Connect the approved read-only watchlist and official-MCP price source, with bounded requests and source-attributed partial results.
-- [ ] Task 7: Add section filters, table/card choice, and a detail drawer without changing watchlist data.
+- [x] Task 6: Connect the approved read-only watchlist and official-MCP price source, with bounded requests and source-attributed partial results.
+- [x] Task 7: Add section filters, table/card choice, and a detail drawer without changing watchlist data.
 - [ ] Task 8: Produce a `PS_Global_Indices` coverage dry-run; request confirmation before any proposed add/delete/reorder action.
 
 ### Checkpoint: feature complete

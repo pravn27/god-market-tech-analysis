@@ -4,7 +4,15 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 
-from .models import AnalysisTimeframe, ChartContext, MultiTimeframeCompleteness, MultiTimeframeContext, ServiceHealth
+from .global_market import GlobalMarketLiveSnapshotProvider, GlobalMarketSnapshotProvider
+from .models import (
+    AnalysisTimeframe,
+    ChartContext,
+    GlobalMarketSnapshot,
+    MultiTimeframeCompleteness,
+    MultiTimeframeContext,
+    ServiceHealth,
+)
 from .mtf_orchestrator import MultiTimeframeContextOrchestrator
 from .oauth import OfficialMCPOAuthCoordinator
 from .providers import ChartContextProvider, DataSourceUnavailableError, OfficialMCPProvider
@@ -14,10 +22,12 @@ def create_app(
     provider: Optional[ChartContextProvider] = None,
     oauth: Optional[OfficialMCPOAuthCoordinator] = None,
     mtf_orchestrator: Optional[MultiTimeframeContextOrchestrator] = None,
+    global_market_provider: Optional[GlobalMarketSnapshotProvider] = None,
 ) -> FastAPI:
     oauth_coordinator = oauth or OfficialMCPOAuthCoordinator()
     active_provider = provider or OfficialMCPProvider(tool_caller=oauth_coordinator)
     active_mtf_orchestrator = mtf_orchestrator or MultiTimeframeContextOrchestrator(active_provider)
+    active_global_market_provider = global_market_provider or GlobalMarketLiveSnapshotProvider(active_provider)
     app = FastAPI(
         title="God Market MCP API",
         version="0.1.0",
@@ -61,6 +71,16 @@ def create_app(
                 },
             )
         return result
+
+    @app.get(
+        "/api/v1/global-market-sentiment",
+        response_model=GlobalMarketSnapshot,
+        tags=["global-market-sentiment"],
+    )
+    async def global_market_sentiment(
+        timeframe: str = Query("daily", min_length=1, max_length=12),
+    ) -> GlobalMarketSnapshot:
+        return await active_global_market_provider.get_snapshot(timeframe)
 
     @app.get("/api/v1/oauth/official/status", tags=["official-mcp-oauth"])
     async def official_oauth_status() -> dict:

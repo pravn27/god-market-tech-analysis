@@ -1,0 +1,34 @@
+:root {
+  background: #06090f;
+  color: #e5edf7;
+  font-synthesis: none;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { min-width: 320px; min-height: 100vh; margin: 0; }
+
+.app-shell { min-height: 100vh; }
+.brand { align-items: center; display: flex; gap: 10px; height: 64px; overflow: hidden; padding: 0 20px; color: #e5edf7; font-weight: 700; white-space: nowrap; }
+.brand-mark { align-items: center; background: #173b3b; border: 1px solid #34d399; border-radius: 6px; color: #a7f3d0; display: inline-flex; font-size: 12px; height: 26px; justify-content: center; width: 26px; }
+.app-header { align-items: center; border-bottom: 1px solid #1b2a3b; display: flex; gap: 14px; padding: 0 24px; }
+.navigation-toggle { background: transparent; border: 0; color: #a8bad0; cursor: pointer; font-size: 18px; padding: 6px; }
+.app-content { padding: 28px; }
+.market-dashboard { max-width: 1400px; }
+.market-dashboard-content { display: flex; width: 100%; }
+.page-title-row, .section-heading { align-items: flex-start; display: flex; gap: 20px; justify-content: space-between; }
+.page-title-row h1, .section-heading h2, .market-group h3 { margin-top: 0; }
+.market-group { background: #0d1420; border: 1px solid #26384e; border-radius: 8px; padding: 20px; }
+.market-display-controls { align-items: end; display: flex; gap: 16px; justify-content: space-between; }
+.section-filter-label { color: #a8bad0; display: grid; font-size: 12px; gap: 5px; }
+.section-filter-label select { background: #0d1420; border: 1px solid #36506d; border-radius: 6px; color: #e5edf7; font: inherit; min-width: 180px; padding: 8px 10px; }
+.view-choice { display: flex; gap: 8px; }
+.market-card-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+.instrument-card-values { display: grid; gap: 10px; margin: 18px 0 10px; }
+.instrument-card-values div { align-items: baseline; display: flex; justify-content: space-between; }
+.instrument-card-values dt { color: #a8bad0; }
+.instrument-card-values dd { font-weight: 600; margin: 0; }
+.instrument-detail-link { padding-left: 0; }
+.instrument-evidence-notes { margin-top: 24px; }
+@media (max-width: 575px) { .market-display-controls { align-items: stretch; flex-direction: column; } .section-filter-label select { width: 100%; } }
+@media (max-width: 575px) { .app-content { padding: 16px; } .page-title-row, .section-heading { flex-direction: column; } }

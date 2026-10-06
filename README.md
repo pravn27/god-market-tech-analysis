@@ -39,6 +39,8 @@ The API is local-only. Visit `http://127.0.0.1:8000/docs` for its generated API 
 
 - `GET /health` reports source readiness.
 - `GET /api/v1/chart-context/{symbol}?timeframe=1h` returns a normalized chart context when an authenticated provider is configured.
+- `GET /api/v1/multi-timeframe-context/{symbol}` returns the assembled Monthly, Weekly, Daily, 4H, 1H, and 15m context for the future Confluence Board. Repeat `timeframe` to request a typed subset, for example `?timeframe=daily&timeframe=4h`.
+- The multi-timeframe endpoint returns `200` for complete or partial evidence and `503` with a typed unavailable result only when no requested timeframe is usable.
 - Until the application-owned official-MCP OAuth authorization completes, chart-context requests safely return `503` rather than fabricated or stale data.
 - A rate-limited technical snapshot produces an explicit warning while current OHLCV remains available.
 

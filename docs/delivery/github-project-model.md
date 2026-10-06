@@ -46,4 +46,4 @@ For each local release, record included stories, validation results, known limit
 
 ## Current delivery checkpoint
 
-Phase 1C adds a contract-tested adapter that maps official-MCP OHLCV and single-timeframe technical responses into `ChartContext`. It does not evaluate rules or synthesize trade signals. The next story validates an explicitly authorized live connection and records source freshness before any rule calculation or dashboard work depends on it.
+Phase 1D completed the local application-owned OAuth connection and a live read-only OHLCV validation. The next work item is E-03: multi-timeframe context orchestration; its specification is in `docs/specifications/multi-timeframe-orchestration.md` and it must complete before Confluence Board or rule-engine implementation.

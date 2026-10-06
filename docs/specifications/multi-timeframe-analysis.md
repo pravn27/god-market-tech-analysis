@@ -1,5 +1,7 @@
 # Specification: multi-timeframe analysis
 
+This document defines the **analysis presentation and evidence**. The data-fetching, caching, freshness, and partial-response behaviour is defined separately in [multi-timeframe-orchestration.md](multi-timeframe-orchestration.md).
+
 ## Purpose
 
 Summarise chart context from larger to smaller timeframes without hiding the evidence behind the conclusion.

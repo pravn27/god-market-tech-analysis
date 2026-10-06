@@ -43,6 +43,8 @@ flowchart LR
 
 The dashboard WebSocket is therefore a **local backend-to-dashboard connection**. It is not described as a direct unsupported connection to TradingView's internal chart WebSocket.
 
+The first Business Logic Backend capability after source integration is the [multi-timeframe orchestrator](../specifications/multi-timeframe-orchestration.md). Its long-term boundaries are defined in [business-logic-foundation.md](business-logic-foundation.md).
+
 ## Component responsibilities
 
 | Component | Responsibility | Must not do |

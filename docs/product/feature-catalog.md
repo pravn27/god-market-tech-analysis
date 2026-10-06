@@ -14,4 +14,6 @@
 | F-10 | Gmail notification | Optional state-change email alerts | Could |
 | F-11 | Configuration import/export | Move rule and dashboard configuration between macOS and Windows | Could |
 
-Features enter development only after an approved specification and acceptance criteria exist.
+Features enter development only after an approved specification and acceptance criteria exist. Technical-enrichment evidence that supplies F-02/F-03 is governed by [technical-enrichment.md](../specifications/technical-enrichment.md).
+
+The full epic-to-story sequence and current implementation order are in the [product delivery roadmap](delivery-roadmap.md).

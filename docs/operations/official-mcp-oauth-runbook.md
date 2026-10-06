@@ -29,5 +29,6 @@ The service uses TradingView OAuth 2.1. On the first explicit authorization requ
 - If the callback state is missing or mismatched, the service rejects the exchange.
 - If the keyring is unavailable, no credentials are written; report the failure to the user.
 - If authorization fails or is cancelled, retain no fabricated ready state; show the official source as unavailable.
+- If a stored credential receives an official-MCP `401`, treat it as expired or revoked: keep the source unavailable, request fresh user approval, and repeat the local authorization flow. Never print or attempt to repair tokens manually.
 - Do not expose authorization codes, tokens, client secrets, or full authorization URLs in logs.
 - If TradingView temporarily rate-limits the technical-rating tool, return current OHLCV with an explicit partial-data warning; do not invent technical values.

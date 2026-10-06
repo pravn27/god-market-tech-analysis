@@ -4,7 +4,8 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 
-from .models import ChartContext, ServiceHealth
+from .models import AnalysisTimeframe, ChartContext, MultiTimeframeCompleteness, MultiTimeframeContext, ServiceHealth
+from .mtf_orchestrator import MultiTimeframeContextOrchestrator
 from .oauth import OfficialMCPOAuthCoordinator
 from .providers import ChartContextProvider, DataSourceUnavailableError, OfficialMCPProvider
 
@@ -12,9 +13,11 @@ from .providers import ChartContextProvider, DataSourceUnavailableError, Officia
 def create_app(
     provider: Optional[ChartContextProvider] = None,
     oauth: Optional[OfficialMCPOAuthCoordinator] = None,
+    mtf_orchestrator: Optional[MultiTimeframeContextOrchestrator] = None,
 ) -> FastAPI:
     oauth_coordinator = oauth or OfficialMCPOAuthCoordinator()
     active_provider = provider or OfficialMCPProvider(tool_caller=oauth_coordinator)
+    active_mtf_orchestrator = mtf_orchestrator or MultiTimeframeContextOrchestrator(active_provider)
     app = FastAPI(
         title="God Market MCP API",
         version="0.1.0",
@@ -38,6 +41,26 @@ def create_app(
             return await active_provider.get_chart_context(symbol=symbol, timeframe=timeframe)
         except DataSourceUnavailableError as error:
             raise HTTPException(status_code=503, detail=str(error))
+
+    @app.get(
+        "/api/v1/multi-timeframe-context/{symbol}",
+        response_model=MultiTimeframeContext,
+        tags=["multi-timeframe-context"],
+    )
+    async def multi_timeframe_context(
+        symbol: str,
+        timeframe: list[AnalysisTimeframe] | None = Query(default=None, alias="timeframe"),
+    ) -> MultiTimeframeContext:
+        result = await active_mtf_orchestrator.get_context(symbol, timeframes=timeframe)
+        if result.completeness is MultiTimeframeCompleteness.UNAVAILABLE:
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "message": "No usable market context is currently available. Check source authorization or retry later.",
+                    "result": result.model_dump(mode="json"),
+                },
+            )
+        return result
 
     @app.get("/api/v1/oauth/official/status", tags=["official-mcp-oauth"])
     async def official_oauth_status() -> dict:

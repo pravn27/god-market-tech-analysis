@@ -3,9 +3,10 @@
 import asyncio
 import base64
 import hashlib
+import json
 import secrets
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -23,6 +24,7 @@ OFFICIAL_OAUTH_METADATA_URL = "https://www.tradingview.com/.well-known/oauth-aut
 KEYRING_SERVICE = "god-market-tech-analysis"
 KEYRING_TOKENS_ACCOUNT = "tradingview-official.tokens"
 KEYRING_CLIENT_ACCOUNT = "tradingview-official.client-info"
+TOKEN_REFRESH_LEEWAY_SECONDS = 60
 
 
 class OAuthStorageError(RuntimeError):
@@ -51,7 +53,35 @@ class KeyringTokenStorage(TokenStorage):
         return self._load(KEYRING_TOKENS_ACCOUNT, OAuthToken)
 
     async def set_tokens(self, tokens: OAuthToken) -> None:
-        self._store(KEYRING_TOKENS_ACCOUNT, tokens)
+        try:
+            keyring.set_password(
+                KEYRING_SERVICE,
+                KEYRING_TOKENS_ACCOUNT,
+                json.dumps(
+                    {
+                        **tokens.model_dump(),
+                        "token_issued_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                ),
+            )
+        except keyring.errors.KeyringError as error:
+            raise OAuthStorageError("Unable to save OAuth credentials to the local operating-system keyring.") from error
+
+    async def get_token_issued_at(self) -> Optional[datetime]:
+        try:
+            value = keyring.get_password(KEYRING_SERVICE, KEYRING_TOKENS_ACCOUNT)
+        except keyring.errors.KeyringError as error:
+            raise OAuthStorageError("Unable to read local OAuth token expiry metadata.") from error
+        if not value:
+            return None
+        try:
+            timestamp_value = json.loads(value).get("token_issued_at")
+            timestamp = datetime.fromisoformat(timestamp_value) if timestamp_value else None
+        except (TypeError, ValueError, AttributeError):
+            return None
+        if timestamp is None:
+            return None
+        return timestamp if timestamp.tzinfo else timestamp.replace(tzinfo=timezone.utc)
 
     async def get_client_info(self) -> Optional[OAuthClientInformationFull]:
         return self._load(KEYRING_CLIENT_ACCOUNT, OAuthClientInformationFull)
@@ -83,6 +113,7 @@ class OfficialMCPOAuthCoordinator:
         self._storage = storage or KeyringTokenStorage()
         self._state = AuthorizationState()
         self._lock = asyncio.Lock()
+        self._token_lock = asyncio.Lock()
 
     async def _metadata(self) -> dict[str, Any]:
         try:
@@ -206,20 +237,123 @@ class OfficialMCPOAuthCoordinator:
                     self._state.tools = [tool.name for tool in tools.tools]
 
     async def status(self) -> AuthorizationState:
-        if await self.is_authenticated() and self._state.status == "starting":
-            self._state.status = "authenticated"
+        tokens = await self._storage.get_tokens()
+        if tokens:
+            self._state.status = await self._token_status(tokens)
         return self._state
 
+    async def _token_status(self, tokens: OAuthToken) -> str:
+        if tokens.expires_in is None:
+            return "authenticated"
+        if not await self._tokens_need_refresh(tokens):
+            return "authenticated"
+        return "refresh_needed" if tokens.refresh_token else "reconnect_required"
+
+    async def _token_expiry(self, tokens: OAuthToken) -> Optional[datetime]:
+        if tokens.expires_in is None:
+            return None
+        get_issued_at = getattr(self._storage, "get_token_issued_at", None)
+        if get_issued_at is None:
+            return None
+        issued_at = await get_issued_at()
+        if issued_at is None:
+            return None
+        return issued_at + timedelta(seconds=tokens.expires_in)
+
+    async def _tokens_need_refresh(self, tokens: OAuthToken) -> bool:
+        if tokens.expires_in is None:
+            return False
+        expires_at = await self._token_expiry(tokens)
+        if expires_at is None:
+            # Older stored credentials have no issuance timestamp. Refresh before
+            # use when possible rather than treating expires_in as a fresh TTL.
+            return bool(tokens.refresh_token)
+        return datetime.now(timezone.utc) >= expires_at - timedelta(seconds=TOKEN_REFRESH_LEEWAY_SECONDS)
+
     async def is_authenticated(self) -> bool:
-        return bool(await self._storage.get_tokens())
+        tokens = await self._storage.get_tokens()
+        if not tokens:
+            return False
+        return await self._token_status(tokens) != "reconnect_required"
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         """Call a read-only official-MCP tool with application-owned credentials."""
         tokens = await self._storage.get_tokens()
         if not tokens:
+            self._state.status = "reconnect_required"
             raise OAuthStorageError("Official MCP authorization is required before requesting market data.")
-        async with httpx.AsyncClient(headers={"Authorization": f"Bearer {tokens.access_token}"}) as client:
+
+        if await self._tokens_need_refresh(tokens):
+            tokens = await self._refresh_tokens(expected_access_token=tokens.access_token)
+
+        try:
+            return await self._call_tool_once(name, arguments, tokens.access_token)
+        except httpx.HTTPStatusError as error:
+            if error.response.status_code != 401:
+                raise
+            tokens = await self._refresh_tokens(expected_access_token=tokens.access_token)
+            return await self._call_tool_once(name, arguments, tokens.access_token)
+
+    async def _call_tool_once(self, name: str, arguments: dict[str, Any], access_token: str) -> Any:
+        async with httpx.AsyncClient(headers={"Authorization": f"Bearer {access_token}"}) as client:
             async with streamable_http_client(OFFICIAL_MCP_URL, http_client=client) as (read_stream, write_stream, _):
                 async with ClientSession(read_stream, write_stream) as session:
                     await session.initialize()
                     return await session.call_tool(name, arguments)
+
+    async def _refresh_tokens(self, expected_access_token: Optional[str] = None) -> OAuthToken:
+        """Refresh an expiring token once, serializing concurrent callers."""
+        async with self._token_lock:
+            tokens = await self._storage.get_tokens()
+            if not tokens:
+                self._state.status = "reconnect_required"
+                raise OAuthStorageError("Official MCP authorization is required before requesting market data.")
+            if expected_access_token and tokens.access_token != expected_access_token:
+                return tokens
+            if not tokens.refresh_token:
+                self._state.status = "reconnect_required"
+                raise OAuthStorageError("Official MCP authorization expired; reconnect TradingView.")
+
+            try:
+                metadata = await self._metadata()
+                client_info = await self._storage.get_client_info()
+                token_endpoint = metadata.get("token_endpoint")
+                if not token_endpoint or not client_info or not client_info.client_id:
+                    raise OAuthStorageError("TradingView OAuth refresh configuration is incomplete.")
+                async with httpx.AsyncClient(timeout=15) as client:
+                    response = await client.post(
+                        token_endpoint,
+                        data={
+                            "grant_type": "refresh_token",
+                            "refresh_token": tokens.refresh_token,
+                            "client_id": client_info.client_id,
+                        },
+                    )
+                    response.raise_for_status()
+                    refreshed_tokens = OAuthToken.model_validate(response.json())
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code == 400:
+                    try:
+                        oauth_error = error.response.json().get("error")
+                    except (ValueError, AttributeError):
+                        oauth_error = None
+                    if oauth_error == "invalid_grant":
+                        self._state.status = "reconnect_required"
+                        raise OAuthStorageError("TradingView authorization expired or was revoked; reconnect required.") from error
+                self._state.status = "refresh_needed"
+                raise OAuthStorageError("Unable to refresh the TradingView connection; retry later.") from error
+            except OAuthStorageError:
+                self._state.status = "refresh_needed"
+                raise
+            except (httpx.HTTPError, ValueError) as error:
+                self._state.status = "refresh_needed"
+                raise OAuthStorageError("Unable to refresh the TradingView connection; retry later.") from error
+
+            if refreshed_tokens.refresh_token is None:
+                refreshed_tokens.refresh_token = tokens.refresh_token
+            if refreshed_tokens.scope is None:
+                refreshed_tokens.scope = tokens.scope
+            await self._storage.set_tokens(refreshed_tokens)
+            self._state.status = "authenticated"
+            self._state.error = None
+            return refreshed_tokens

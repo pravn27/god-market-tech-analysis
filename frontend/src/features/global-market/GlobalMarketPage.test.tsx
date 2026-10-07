@@ -125,7 +125,7 @@ test('labels Desktop-assisted fallback values in table and card views', async ()
   renderPage()
 
   expect((await screen.findAllByText('DESKTOP ASSISTED')).length).toBeGreaterThan(0)
-  fireEvent.click(screen.getByRole('button', { name: 'Cards' }))
+  fireEvent.click(screen.getByRole('radio', { name: /Cards/ }))
   expect(screen.getAllByText('DESKTOP ASSISTED')).toHaveLength(2)
 })
 
@@ -135,12 +135,24 @@ test('filters sections, switches to cards, and opens read-only evidence details'
   renderPage()
 
   await screen.findByText('Dow Jones Industrial Average')
-  fireEvent.change(screen.getByLabelText('Market section'), { target: { value: 'INDIA ADRS' } })
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Market section' }))
+  fireEvent.click(await screen.findByText('INDIA ADRS', { selector: '.ant-select-item-option-content' }))
   expect(screen.queryByText('Dow Jones Industrial Average')).not.toBeInTheDocument()
   expect(screen.getByText('Infosys ADR')).toBeInTheDocument()
 
-  fireEvent.click(screen.getByRole('button', { name: 'Cards' }))
+  fireEvent.click(screen.getByRole('radio', { name: /Cards/ }))
   fireEvent.click(screen.getByRole('button', { name: 'View evidence' }))
   expect(await screen.findByText('Market evidence: Infosys ADR')).toBeInTheDocument()
   expect(screen.getByText(/Fixture does not include a current value/i)).toBeInTheDocument()
+})
+
+test('presents daily context and view controls with Ant Design components', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(fixtureSnapshot), { status: 200 })))
+
+  renderPage()
+
+  await screen.findByText('Dow Jones Industrial Average')
+  expect(screen.getByText('Daily snapshot')).toBeInTheDocument()
+  expect(screen.getByLabelText('Market section').closest('.ant-select')).toBeInTheDocument()
+  expect(screen.getByRole('radiogroup', { name: 'Market view' })).toBeInTheDocument()
 })

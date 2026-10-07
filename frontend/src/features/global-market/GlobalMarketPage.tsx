@@ -1,5 +1,5 @@
-import { ReloadOutlined } from '@ant-design/icons'
-import { Alert, Button, Empty, Skeleton, Space, Typography } from 'antd'
+import { AppstoreOutlined, GlobalOutlined, ReloadOutlined, TableOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Empty, Segmented, Select, Skeleton, Space, Tag, Typography } from 'antd'
 import { useState } from 'react'
 
 import type { GlobalMarketInstrument } from '../../api/client'
@@ -25,17 +25,15 @@ export default function GlobalMarketPage() {
 
   return (
     <section aria-labelledby="global-market-heading" className="market-dashboard">
-      <div className="page-title-row">
+      <Card className="market-hero">
+        <GlobalOutlined className="market-hero-icon" aria-hidden="true" />
         <div>
-          <Typography.Title id="global-market-heading" level={1}>Global Market</Typography.Title>
+          <Typography.Title id="global-market-heading" level={1}>Global Markets</Typography.Title>
           <Typography.Paragraph type="secondary">
-            Daily market context from the local God Market API. This is not a trade instruction.
+            Daily world indices and market context · evidence for manual analysis, not a trade instruction.
           </Typography.Paragraph>
         </div>
-        <Button icon={<ReloadOutlined />} loading={isFetching} onClick={() => void refetch()}>
-          Refresh
-        </Button>
-      </div>
+      </Card>
 
       {isPending && <Skeleton active paragraph={{ rows: 10 }} aria-label="Loading global market context" />}
 
@@ -50,33 +48,67 @@ export default function GlobalMarketPage() {
 
       {data && (
         <Space orientation="vertical" size="large" className="market-dashboard-content">
+          {data.groups.length > 0 && (
+            <Card className="market-controls-card" size="small">
+              <div className="market-display-controls" aria-label="Global Market display controls">
+                <div className="market-control-group">
+                  <label className="section-filter-label" htmlFor="market-section-select">Market section</label>
+                  <Select
+                    id="market-section-select"
+                    aria-label="Market section"
+                    value={section}
+                    onChange={(value) => setSection(String(value))}
+                    options={[
+                      { label: 'All sections', value: 'all' },
+                      ...data.groups.map((group) => ({ label: group.name, value: group.name })),
+                    ]}
+                    className="market-section-select"
+                  />
+                </div>
+                <div className="market-controls-right">
+                  <Tag color="blue" className="daily-context-tag">Daily snapshot</Tag>
+                  <div className="market-control-group">
+                    <span className="section-filter-label">View</span>
+                    <Segmented
+                      aria-label="Market view"
+                      value={view}
+                      onChange={(value) => setView(value as 'table' | 'cards')}
+                      options={[
+                        { label: 'Table', value: 'table', icon: <TableOutlined /> },
+                        { label: 'Cards', value: 'cards', icon: <AppstoreOutlined /> },
+                      ]}
+                    />
+                  </div>
+                  <Button type="primary" icon={<ReloadOutlined />} loading={isFetching} onClick={() => void refetch()}>
+                    Refresh data
+                  </Button>
+                </div>
+              </div>
+            </Card>
+          )}
           <Alert
             type={data.completeness === 'complete' ? 'info' : data.completeness === 'partial' ? 'warning' : 'error'}
             showIcon
             title={`${data.watchlist_name} · ${data.timeframe.toUpperCase()} · read ${formatReadAt(data.read_at)}`}
             description="Source and freshness labels identify the evidence state of every item."
           />
-          {data.warnings.map((warning) => (
-            <Alert key={warning} type="warning" showIcon title={warning} />
-          ))}
+          {data.warnings.length > 0 && (
+            <Alert
+              type="warning"
+              showIcon
+              title={`${data.warnings.length} data note${data.warnings.length === 1 ? '' : 's'}`}
+              description={(
+                <ul className="market-warning-list">
+                  {data.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                </ul>
+              )}
+            />
+          )}
           <SentimentSummary snapshot={data} />
           {data.groups.length === 0 ? (
             <Empty description="No watchlist groups are available from the local API." />
           ) : (
             <>
-              <div className="market-display-controls" aria-label="Global Market display controls">
-                <label className="section-filter-label">
-                  <span>Section</span>
-                  <select aria-label="Market section" value={section} onChange={(event) => setSection(event.target.value)}>
-                    <option value="all">All sections</option>
-                    {data.groups.map((group) => <option key={group.name} value={group.name}>{group.name}</option>)}
-                  </select>
-                </label>
-                <div className="view-choice" aria-label="Market view">
-                  <Button type={view === 'table' ? 'primary' : 'default'} aria-pressed={view === 'table'} onClick={() => setView('table')}>Table</Button>
-                  <Button type={view === 'cards' ? 'primary' : 'default'} aria-pressed={view === 'cards'} onClick={() => setView('cards')}>Cards</Button>
-                </div>
-              </div>
               {visibleGroups.length === 0 ? (
                 <Empty description="No instruments match this section." />
               ) : visibleGroups.map((group) => view === 'table'

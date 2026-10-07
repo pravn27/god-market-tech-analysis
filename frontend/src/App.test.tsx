@@ -24,6 +24,6 @@ test('renders the Global Market route shell', () => {
     </QueryClientProvider>,
   )
 
-  expect(screen.getByRole('heading', { name: 'Global Market' })).toBeInTheDocument()
-  expect(screen.getByText(/local God Market API/i)).toBeInTheDocument()
+  expect(screen.getByRole('heading', { name: 'Global Markets' })).toBeInTheDocument()
+  expect(screen.getByText(/manual analysis/i)).toBeInTheDocument()
 })

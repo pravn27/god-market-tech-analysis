@@ -14,15 +14,25 @@ html, body, #root { min-width: 320px; min-height: 100vh; margin: 0; }
 .app-header { align-items: center; border-bottom: 1px solid #1b2a3b; display: flex; gap: 14px; padding: 0 24px; }
 .navigation-toggle { background: transparent; border: 0; color: #a8bad0; cursor: pointer; font-size: 18px; padding: 6px; }
 .app-content { padding: 28px; }
-.market-dashboard { max-width: 1400px; }
+.market-dashboard { margin: 0 auto; max-width: 1480px; }
 .market-dashboard-content { display: flex; width: 100%; }
-.page-title-row, .section-heading { align-items: flex-start; display: flex; gap: 20px; justify-content: space-between; }
-.page-title-row h1, .section-heading h2, .market-group h3 { margin-top: 0; }
+.market-hero { border-inline-start: 3px solid #34d399; }
+.market-hero .ant-card-body { align-items: center; display: flex; gap: 16px; padding: 24px; }
+.market-hero-icon { color: #60a5fa; font-size: 30px; }
+.market-hero h1 { margin: 0 0 4px; }
+.market-hero .ant-typography { margin-bottom: 0; }
+.market-controls-card .ant-card-body { padding: 16px 20px; }
+.market-display-controls, .market-controls-right { align-items: end; display: flex; gap: 16px; justify-content: space-between; }
+.market-controls-right { align-items: end; justify-content: flex-end; }
+.market-control-group { display: grid; gap: 6px; }
+.section-filter-label { color: #a8bad0; font-size: 12px; font-weight: 600; }
+.market-section-select { min-width: 220px; }
+.daily-context-tag { align-self: center; margin: 0; }
+.market-warning-list { margin: 0; padding-inline-start: 20px; }
+.market-warning-list li + li { margin-top: 4px; }
+.section-heading { align-items: flex-start; display: flex; gap: 20px; justify-content: space-between; }
+.section-heading h2, .market-group h3 { margin-top: 0; }
 .market-group { background: #0d1420; border: 1px solid #26384e; border-radius: 8px; padding: 20px; }
-.market-display-controls { align-items: end; display: flex; gap: 16px; justify-content: space-between; }
-.section-filter-label { color: #a8bad0; display: grid; font-size: 12px; gap: 5px; }
-.section-filter-label select { background: #0d1420; border: 1px solid #36506d; border-radius: 6px; color: #e5edf7; font: inherit; min-width: 180px; padding: 8px 10px; }
-.view-choice { display: flex; gap: 8px; }
 .market-card-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
 .instrument-card-values { display: grid; gap: 10px; margin: 18px 0 10px; }
 .instrument-card-values div { align-items: baseline; display: flex; justify-content: space-between; }
@@ -30,5 +40,5 @@ html, body, #root { min-width: 320px; min-height: 100vh; margin: 0; }
 .instrument-card-values dd { font-weight: 600; margin: 0; }
 .instrument-detail-link { padding-left: 0; }
 .instrument-evidence-notes { margin-top: 24px; }
-@media (max-width: 575px) { .market-display-controls { align-items: stretch; flex-direction: column; } .section-filter-label select { width: 100%; } }
-@media (max-width: 575px) { .app-content { padding: 16px; } .page-title-row, .section-heading { flex-direction: column; } }
+@media (max-width: 767px) { .market-display-controls, .market-controls-right { align-items: stretch; flex-direction: column; } .market-section-select { width: 100%; } .market-controls-right { align-items: stretch; } .daily-context-tag { align-self: flex-start; } }
+@media (max-width: 575px) { .app-content { padding: 16px; } .section-heading { flex-direction: column; } .market-hero .ant-card-body { align-items: flex-start; padding: 18px; } }

@@ -108,6 +108,27 @@ test('shows an empty state when the local API has no groups', async () => {
   expect(await screen.findByText(/No watchlist groups are available/i)).toBeInTheDocument()
 })
 
+test('labels Desktop-assisted fallback values in table and card views', async () => {
+  const desktopSnapshot = {
+    ...fixtureSnapshot,
+    groups: fixtureSnapshot.groups.map((group) => ({
+      ...group,
+      instruments: group.instruments.map((instrument) => ({
+        ...instrument,
+        source: 'desktop_bridge' as const,
+        warnings: ['Desktop-assisted fallback quote.'],
+      })),
+    })),
+  }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(desktopSnapshot), { status: 200 })))
+
+  renderPage()
+
+  expect((await screen.findAllByText('DESKTOP ASSISTED')).length).toBeGreaterThan(0)
+  fireEvent.click(screen.getByRole('button', { name: 'Cards' }))
+  expect(screen.getAllByText('DESKTOP ASSISTED')).toHaveLength(2)
+})
+
 test('filters sections, switches to cards, and opens read-only evidence details', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(fixtureSnapshot), { status: 200 })))
 

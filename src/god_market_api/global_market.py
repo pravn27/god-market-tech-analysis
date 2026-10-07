@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Protocol, Sequence
 
+from .desktop_bridge import DesktopWatchlistQuoteSnapshot, TradingViewDesktopWatchlistReader
 from .models import (
     DataSource,
     GlobalMarketBreadth,
@@ -37,7 +38,7 @@ class WatchlistGroupDefinition:
     instruments: tuple[WatchlistInstrumentDefinition, ...] = ()
 
 
-# Read-only snapshot captured from PS_Global_Indices on 2026-10-06. It is not
+# Read-only snapshot captured from PS_Global_Indices on 2026-10-07. It is not
 # a replacement universe and must not be changed without the separate coverage
 # dry-run and the user's explicit confirmation.
 RECORDED_WATCHLIST_GROUPS = (
@@ -54,12 +55,34 @@ RECORDED_WATCHLIST_GROUPS = (
             WatchlistInstrumentDefinition("BLACKBULL:DJ30.F", "Dow Jones 30 Futures"),
             WatchlistInstrumentDefinition("BLACKBULL:US30", "US Wall Street 30"),
             WatchlistInstrumentDefinition("TVC:NYA", "NYSE Composite"),
+            WatchlistInstrumentDefinition("CBOEFTSE:RUT", "Russell 2000"),
             WatchlistInstrumentDefinition("TVC:DXY", "US Dollar Currency Index"),
             WatchlistInstrumentDefinition("TVC:VIX", "CBOE Volatility Index"),
         ),
     ),
-    WatchlistGroupDefinition(name="EUROPE"),
-    WatchlistGroupDefinition(name="ASIA PACIFIC"),
+    WatchlistGroupDefinition(
+        name="EUROPE",
+        instruments=(
+            WatchlistInstrumentDefinition("XETR:DAX", "DAX"),
+            WatchlistInstrumentDefinition("TVC:CAC40", "CAC 40"),
+            WatchlistInstrumentDefinition("FTSE:UKX", "FTSE 100"),
+        ),
+    ),
+    WatchlistGroupDefinition(
+        name="ASIA PACIFIC",
+        instruments=(
+            WatchlistInstrumentDefinition("NSEIX:NIFTY1!", "GIFT Nifty 50 Futures"),
+            WatchlistInstrumentDefinition("TVC:HSI", "Hang Seng Index"),
+            WatchlistInstrumentDefinition("TVC:NI225", "Nikkei 225"),
+            WatchlistInstrumentDefinition("TVC:STI", "Straits Times Index"),
+            WatchlistInstrumentDefinition("KRX:KOSPI", "KOSPI Composite Index"),
+            WatchlistInstrumentDefinition("ASX:XJO", "S&P/ASX 200"),
+            WatchlistInstrumentDefinition("IDX:COMPOSITE", "IDX Composite"),
+            WatchlistInstrumentDefinition("SET:SET", "SET Index"),
+            WatchlistInstrumentDefinition("TWSE:TAIEX", "Taiwan Weighted Index"),
+            WatchlistInstrumentDefinition("SSE:000300", "CSI 300 Index"),
+        ),
+    ),
     WatchlistGroupDefinition(
         name="INDIA ADRS",
         instruments=(
@@ -218,6 +241,7 @@ class GlobalMarketLiveSnapshotProvider:
         self,
         provider: ChartContextProvider,
         *,
+        desktop_watchlist_reader: TradingViewDesktopWatchlistReader | None = None,
         watchlist_groups: Sequence[WatchlistGroupDefinition] = RECORDED_WATCHLIST_GROUPS,
         clock: Callable[[], datetime] = _utc_now,
         max_provider_concurrency: int = 6,
@@ -228,6 +252,7 @@ class GlobalMarketLiveSnapshotProvider:
         if cache_for < timedelta(0):
             raise ValueError("cache_for must not be negative.")
         self._provider = provider
+        self._desktop_watchlist_reader = desktop_watchlist_reader
         self._watchlist_groups = tuple(watchlist_groups)
         self._clock = clock
         self._service = GlobalMarketSnapshotService(clock=clock)
@@ -248,13 +273,41 @@ class GlobalMarketLiveSnapshotProvider:
             groups = await asyncio.gather(
                 *(self._read_group(group, timeframe) for group in self._watchlist_groups)
             )
+            warnings = [
+                "Official TradingView MCP is the primary source for available price evidence.",
+                "Watchlist groups use the read-only PS_Global_Indices snapshot recorded on 2026-10-07.",
+            ]
+            unavailable_count = sum(
+                item.direction is MarketDirection.UNAVAILABLE
+                for group in groups
+                for item in group.instruments
+            )
+            if unavailable_count and self._desktop_watchlist_reader is not None:
+                expected_symbols = [
+                    item.symbol
+                    for group in self._watchlist_groups
+                    for item in group.instruments
+                ]
+                try:
+                    desktop_snapshot = await self._desktop_watchlist_reader.get_quotes(expected_symbols)
+                except DataSourceUnavailableError as error:
+                    warnings.append(f"Desktop fallback was unavailable: {error}")
+                else:
+                    groups = self._apply_desktop_watchlist_quotes(groups, desktop_snapshot)
+                    fallback_count = sum(
+                        item.source is DataSource.DESKTOP_BRIDGE
+                        for group in groups
+                        for item in group.instruments
+                    )
+                    if fallback_count:
+                        warnings.append(
+                            f"Desktop watchlist quotes supplied fallback evidence for {fallback_count} item(s); "
+                            "the source timestamp is the local read time."
+                        )
             snapshot = self._service.build_snapshot(
                 timeframe=timeframe,
                 groups=groups,
-                warnings=[
-                    "Official TradingView MCP is the primary source for available price evidence.",
-                    "Watchlist groups use the read-only PS_Global_Indices snapshot recorded on 2026-10-06.",
-                ],
+                warnings=warnings,
             )
             self._snapshot_cache[timeframe] = (self._clock() + self._cache_for, snapshot)
             return snapshot
@@ -313,6 +366,66 @@ class GlobalMarketLiveSnapshotProvider:
             freshness_state=context.freshness_state,
             warnings=context.warnings,
         )
+
+    def _apply_desktop_watchlist_quotes(
+        self,
+        groups: Sequence[GlobalMarketGroup],
+        desktop_snapshot: DesktopWatchlistQuoteSnapshot,
+    ) -> list[GlobalMarketGroup]:
+        fallback_warning = (
+            "Desktop-assisted fallback: price/change came from the visible TradingView watchlist row; "
+            "the bridge does not provide a per-quote market timestamp or historical candles."
+        )
+        updated_groups: list[GlobalMarketGroup] = []
+        for group in groups:
+            instruments: list[GlobalMarketInstrument] = []
+            for instrument in group.instruments:
+                quote = desktop_snapshot.quotes.get(instrument.symbol.upper())
+                if instrument.direction is not MarketDirection.UNAVAILABLE or quote is None or quote.last_price is None:
+                    instruments.append(instrument)
+                    continue
+                official_warning = f"Official MCP evidence was unavailable: {instrument.unavailable_reason}"
+                fallback_warnings = [official_warning, fallback_warning]
+                if quote.change_percent is None:
+                    instruments.append(
+                        instrument.model_copy(
+                            update={
+                                "last_price": quote.last_price,
+                                "source": DataSource.DESKTOP_BRIDGE,
+                                "source_timestamp": desktop_snapshot.observed_at,
+                                "freshness_state": SourceState.READY,
+                                "warnings": fallback_warnings,
+                                "unavailable_reason": (
+                                    "Desktop quote is available, but the watchlist row has no daily change percentage; "
+                                    "this item remains excluded from breadth."
+                                ),
+                            }
+                        )
+                    )
+                    continue
+                direction = (
+                    MarketDirection.ADVANCING
+                    if quote.change_percent > 0
+                    else MarketDirection.DECLINING
+                    if quote.change_percent < 0
+                    else MarketDirection.UNCHANGED
+                )
+                instruments.append(
+                    instrument.model_copy(
+                        update={
+                            "last_price": quote.last_price,
+                            "change_percent": quote.change_percent,
+                            "direction": direction,
+                            "source": DataSource.DESKTOP_BRIDGE,
+                            "source_timestamp": desktop_snapshot.observed_at,
+                            "freshness_state": SourceState.READY,
+                            "warnings": fallback_warnings,
+                            "unavailable_reason": None,
+                        }
+                    )
+                )
+            updated_groups.append(group.model_copy(update={"instruments": instruments}))
+        return updated_groups
 
     @staticmethod
     def _unavailable(

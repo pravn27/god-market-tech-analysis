@@ -14,6 +14,18 @@ const directionColor: Record<GlobalMarketInstrument['direction'], string> = {
   unavailable: 'warning',
 }
 
+const sourceLabel: Record<GlobalMarketInstrument['source'], string> = {
+  official_mcp: 'OFFICIAL MCP',
+  desktop_bridge: 'DESKTOP ASSISTED',
+  fixture: 'FIXTURE',
+}
+
+const sourceColor: Record<GlobalMarketInstrument['source'], string> = {
+  official_mcp: 'blue',
+  desktop_bridge: 'gold',
+  fixture: 'default',
+}
+
 function formatPrice(value: number | null) {
   return value?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—'
 }
@@ -38,6 +50,7 @@ export default function MarketGroupCards({ group, onSelect }: MarketGroupCardsPr
               extra={<Tag color={directionColor[instrument.direction]}>{instrument.direction.toUpperCase()}</Tag>}
             >
               <Typography.Text type="secondary">{instrument.symbol}</Typography.Text>
+              <div><Tag color={sourceColor[instrument.source]}>{sourceLabel[instrument.source]}</Tag></div>
               <dl className="instrument-card-values">
                 <div><dt>Last</dt><dd>{formatPrice(instrument.last_price)}</dd></div>
                 <div><dt>Daily change</dt><dd>{formatChange(instrument.change_percent)}</dd></div>

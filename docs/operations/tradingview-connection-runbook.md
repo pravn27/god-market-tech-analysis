@@ -16,6 +16,29 @@ Verified official-connector limits and supported read operations are recorded in
 - The backend reports a recent successful chart-context update and source ID.
 - The dashboard displays `Connected` with the source timestamp.
 
+## Desktop watchlist quote fallback
+
+When the official MCP cannot provide a usable candle, the local backend may
+read quote rows from the currently selected Desktop watchlist. The read is
+accepted only when its ordered symbols exactly match the approved
+`PS_Global_Indices` snapshot. The bridge's `watchlist_get` response does not
+include a reliable list name or exchange timestamp; the dashboard marks these
+values as Desktop-assisted and uses the local read time. If a row has no change
+percentage, its displayed price is retained but the instrument is excluded
+from breadth.
+
+Configure the bridge CLI path in the environment that starts the backend:
+
+```bash
+TRADINGVIEW_DESKTOP_BRIDGE_CLI="/path/to/tradingview-mcp/src/cli/index.js"
+```
+
+Node.js must be on `PATH`. Optionally set
+`TRADINGVIEW_DESKTOP_BRIDGE_NODE` to the full Node.js executable path. The
+TradingView Desktop app must be running with the local CDP port enabled. The
+backend invokes only `watchlist get`; it does not switch the chart or edit the
+watchlist.
+
 ## If connection is unavailable
 
 1. Do not act on stale setup results.

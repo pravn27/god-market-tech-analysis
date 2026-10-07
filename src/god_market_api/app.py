@@ -4,6 +4,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, Query
 
+from .desktop_bridge import TradingViewDesktopWatchlistReader
 from .global_market import GlobalMarketLiveSnapshotProvider, GlobalMarketSnapshotProvider
 from .models import (
     AnalysisTimeframe,
@@ -23,11 +24,16 @@ def create_app(
     oauth: Optional[OfficialMCPOAuthCoordinator] = None,
     mtf_orchestrator: Optional[MultiTimeframeContextOrchestrator] = None,
     global_market_provider: Optional[GlobalMarketSnapshotProvider] = None,
+    desktop_watchlist_reader: Optional[TradingViewDesktopWatchlistReader] = None,
 ) -> FastAPI:
     oauth_coordinator = oauth or OfficialMCPOAuthCoordinator()
     active_provider = provider or OfficialMCPProvider(tool_caller=oauth_coordinator)
     active_mtf_orchestrator = mtf_orchestrator or MultiTimeframeContextOrchestrator(active_provider)
-    active_global_market_provider = global_market_provider or GlobalMarketLiveSnapshotProvider(active_provider)
+    active_desktop_watchlist_reader = desktop_watchlist_reader or TradingViewDesktopWatchlistReader.from_environment()
+    active_global_market_provider = global_market_provider or GlobalMarketLiveSnapshotProvider(
+        active_provider,
+        desktop_watchlist_reader=active_desktop_watchlist_reader,
+    )
     app = FastAPI(
         title="God Market MCP API",
         version="0.1.0",

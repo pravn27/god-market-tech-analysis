@@ -22,6 +22,18 @@ const freshnessColor: Record<GlobalMarketInstrument['freshness_state'], string> 
   not_configured: 'default',
 }
 
+const sourceLabel: Record<GlobalMarketInstrument['source'], string> = {
+  official_mcp: 'OFFICIAL MCP',
+  desktop_bridge: 'DESKTOP ASSISTED',
+  fixture: 'FIXTURE',
+}
+
+const sourceColor: Record<GlobalMarketInstrument['source'], string> = {
+  official_mcp: 'blue',
+  desktop_bridge: 'gold',
+  fixture: 'default',
+}
+
 const columns: ColumnsType<GlobalMarketInstrument> = [
   {
     title: 'Instrument',
@@ -54,6 +66,14 @@ const columns: ColumnsType<GlobalMarketInstrument> = [
     key: 'direction',
     render: (direction: GlobalMarketInstrument['direction']) => (
       <Tag color={directionColor[direction]}>{direction.toUpperCase()}</Tag>
+    ),
+  },
+  {
+    title: 'Source',
+    dataIndex: 'source',
+    key: 'source',
+    render: (source: GlobalMarketInstrument['source']) => (
+      <Tag color={sourceColor[source]}>{sourceLabel[source]}</Tag>
     ),
   },
   {

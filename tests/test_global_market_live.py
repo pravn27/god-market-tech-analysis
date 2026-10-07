@@ -6,8 +6,10 @@ from datetime import datetime, timedelta, timezone
 from fastapi.testclient import TestClient
 
 from god_market_api.app import create_app
+from god_market_api.desktop_bridge import DesktopWatchlistQuote, DesktopWatchlistQuoteSnapshot
 from god_market_api.global_market import (
     GlobalMarketLiveSnapshotProvider,
+    RECORDED_WATCHLIST_GROUPS,
     WatchlistGroupDefinition,
     WatchlistInstrumentDefinition,
 )
@@ -16,6 +18,46 @@ from god_market_api.providers import DataSourceUnavailableError
 
 
 NOW = datetime(2026, 10, 6, 12, tzinfo=timezone.utc)
+
+
+def test_recorded_watchlist_matches_the_approved_ps_global_indices_snapshot() -> None:
+    assert [(group.name, [item.symbol for item in group.instruments]) for group in RECORDED_WATCHLIST_GROUPS] == [
+        (
+            "USA",
+            [
+                "TVC:DJI",
+                "DJCFD:DJT",
+                "NASDAQ:NDX",
+                "CBOE:MAGS",
+                "NASDAQ:IXIC",
+                "VANTAGE:USDINR",
+                "TVC:SPX",
+                "BLACKBULL:DJ30.F",
+                "BLACKBULL:US30",
+                "TVC:NYA",
+                "CBOEFTSE:RUT",
+                "TVC:DXY",
+                "TVC:VIX",
+            ],
+        ),
+        ("EUROPE", ["XETR:DAX", "TVC:CAC40", "FTSE:UKX"]),
+        (
+            "ASIA PACIFIC",
+            [
+                "NSEIX:NIFTY1!",
+                "TVC:HSI",
+                "TVC:NI225",
+                "TVC:STI",
+                "KRX:KOSPI",
+                "ASX:XJO",
+                "IDX:COMPOSITE",
+                "SET:SET",
+                "TWSE:TAIEX",
+                "SSE:000300",
+            ],
+        ),
+        ("INDIA ADRS", ["NYSE:INFY", "NYSE:WIT", "NYSE:IBN", "NYSE:HDB"]),
+    ]
 WATCHLIST = (
     WatchlistGroupDefinition(
         name="USA",
@@ -54,6 +96,16 @@ class FixtureProvider:
         )
 
 
+class FixtureDesktopWatchlistReader:
+    def __init__(self, quotes: dict[str, DesktopWatchlistQuote]) -> None:
+        self.quotes = quotes
+        self.calls: list[list[str]] = []
+
+    async def get_quotes(self, expected_symbols: list[str]) -> DesktopWatchlistQuoteSnapshot:
+        self.calls.append(expected_symbols)
+        return DesktopWatchlistQuoteSnapshot(quotes=self.quotes, observed_at=NOW)
+
+
 def test_live_provider_uses_official_context_and_keeps_unavailable_items_visible() -> None:
     provider = FixtureProvider(unavailable_symbols={"NYSE:INFY"})
     live = GlobalMarketLiveSnapshotProvider(provider, watchlist_groups=WATCHLIST, clock=lambda: NOW)
@@ -89,6 +141,62 @@ def test_live_provider_reuses_a_recent_snapshot_without_extra_source_requests() 
 
     assert first is second
     assert len(provider.calls) == 3
+
+
+def test_live_provider_uses_desktop_watchlist_as_labeled_fallback_for_failed_official_item() -> None:
+    provider = FixtureProvider(unavailable_symbols={"TVC:SPX"})
+    desktop = FixtureDesktopWatchlistReader(
+        {
+            "TVC:SPX": DesktopWatchlistQuote(last_price=105.0, change_percent=0.5),
+            "TVC:VIX": DesktopWatchlistQuote(last_price=18.0, change_percent=-1.0),
+            "NYSE:INFY": DesktopWatchlistQuote(last_price=10.0, change_percent=None),
+        }
+    )
+    live = GlobalMarketLiveSnapshotProvider(
+        provider,
+        desktop_watchlist_reader=desktop,
+        watchlist_groups=WATCHLIST,
+        clock=lambda: NOW,
+    )
+
+    snapshot = asyncio.run(live.get_snapshot("daily"))
+
+    fallback = snapshot.groups[0].instruments[0]
+    assert fallback.source is DataSource.DESKTOP_BRIDGE
+    assert fallback.last_price == 105.0
+    assert fallback.change_percent == 0.5
+    assert fallback.direction is MarketDirection.ADVANCING
+    assert any("Desktop-assisted fallback" in warning for warning in fallback.warnings)
+    assert snapshot.breadth.model_dump() == {
+        "advancing": 1,
+        "declining": 1,
+        "unchanged": 1,
+        "unavailable": 0,
+    }
+    assert desktop.calls == [["TVC:SPX", "TVC:VIX", "NYSE:INFY"]]
+
+
+def test_desktop_quote_without_daily_change_shows_price_but_stays_out_of_breadth() -> None:
+    provider = FixtureProvider(unavailable_symbols={"TVC:SPX"})
+    desktop = FixtureDesktopWatchlistReader(
+        {"TVC:SPX": DesktopWatchlistQuote(last_price=105.0, change_percent=None)}
+    )
+    live = GlobalMarketLiveSnapshotProvider(
+        provider,
+        desktop_watchlist_reader=desktop,
+        watchlist_groups=WATCHLIST,
+        clock=lambda: NOW,
+    )
+
+    snapshot = asyncio.run(live.get_snapshot("daily"))
+
+    fallback = snapshot.groups[0].instruments[0]
+    assert fallback.source is DataSource.DESKTOP_BRIDGE
+    assert fallback.last_price == 105.0
+    assert fallback.change_percent is None
+    assert fallback.direction is MarketDirection.UNAVAILABLE
+    assert "no daily change percentage" in fallback.unavailable_reason
+    assert snapshot.breadth.unavailable == 1
 
 
 def test_default_global_market_endpoint_uses_the_live_official_provider() -> None:

@@ -28,13 +28,13 @@ class FakeToolCaller:
 def test_provider_normalizes_official_mcp_ohlcv_and_technical_snapshot():
     caller = FakeToolCaller(
         {
-            "get_ohlcv": {
+            "mcp-tv-get-ohlcv": {
                 "bars": [
                     {"t": 1735689600, "o": 100, "h": 106, "l": 99, "c": 104, "v": 1200},
                     {"t": 1735776000, "o": 104, "h": 109, "l": 103, "c": 108, "v": 1300},
                 ]
             },
-            "get_technicals_rating": {
+            "mcp-tv-get-technicals-rating": {
                 "summary": {"RECOMMENDATION": "BUY"},
                 "moving_averages": "STRONG_BUY",
                 "oscillators": "NEUTRAL",
@@ -53,8 +53,8 @@ def test_provider_normalizes_official_mcp_ohlcv_and_technical_snapshot():
     assert context.technicals.moving_averages == "STRONG_BUY"
     assert context.technicals.values == {"RSI": 57.4, "MACD": 1.3}
     assert caller.calls == [
-        ("get_ohlcv", {"symbol": "NSE:NIFTY", "interval": "1D", "count": 250}),
-        ("get_technicals_rating", {"symbol": "NSE:NIFTY", "interval": "1D"}),
+        ("mcp-tv-get-ohlcv", {"symbol": "NSE:NIFTY", "interval": "1D", "count": 250}),
+        ("mcp-tv-get-technicals-rating", {"symbol": "NSE:NIFTY", "interval": "1D"}),
     ]
     health = asyncio.run(provider.health())
     assert health.state == SourceState.READY
@@ -64,7 +64,7 @@ def test_provider_normalizes_official_mcp_ohlcv_and_technical_snapshot():
 def test_provider_rejects_invalid_or_empty_mcp_candle_response():
     provider = OfficialMCPProvider(
         tool_caller=FakeToolCaller(
-            {"get_ohlcv": {"bars": []}, "get_technicals_rating": {"summary": "BUY"}}
+            {"mcp-tv-get-ohlcv": {"bars": []}, "mcp-tv-get-technicals-rating": {"summary": "BUY"}}
         )
     )
 
@@ -76,8 +76,8 @@ def test_provider_keeps_current_ohlcv_when_the_technical_snapshot_is_unavailable
     provider = OfficialMCPProvider(
         tool_caller=FakeToolCaller(
             {
-                "get_ohlcv": {"bars": [{"t": 1735689600, "o": 100, "h": 106, "l": 99, "c": 104}]},
-                "get_technicals_rating": {"success": False, "error": "rate limited"},
+                "mcp-tv-get-ohlcv": {"bars": [{"t": 1735689600, "o": 100, "h": 106, "l": 99, "c": 104}]},
+                "mcp-tv-get-technicals-rating": {"success": False, "error": "rate limited"},
             }
         )
     )
@@ -94,7 +94,7 @@ def test_provider_keeps_current_ohlcv_when_the_technical_snapshot_is_unavailable
 def test_provider_can_fetch_a_small_ohlcv_only_context_for_market_breadth():
     caller = FakeToolCaller(
         {
-            "get_ohlcv": {
+            "mcp-tv-get-ohlcv": {
                 "bars": [
                     {"t": 1735689600, "o": 100, "h": 106, "l": 99, "c": 104},
                     {"t": 1735776000, "o": 104, "h": 109, "l": 103, "c": 108},
@@ -108,7 +108,27 @@ def test_provider_can_fetch_a_small_ohlcv_only_context_for_market_breadth():
 
     assert context.technicals is None
     assert len(context.candles) == 2
-    assert caller.calls == [("get_ohlcv", {"symbol": "NSE:NIFTY", "interval": "1D", "count": 2})]
+    assert caller.calls == [("mcp-tv-get-ohlcv", {"symbol": "NSE:NIFTY", "interval": "1D", "count": 2})]
+
+
+def test_provider_accepts_valid_ohlc_when_index_volume_is_null():
+    provider = OfficialMCPProvider(
+        tool_caller=FakeToolCaller(
+            {
+                "mcp-tv-get-ohlcv": {
+                    "bars": [
+                        {"t": 1791207000, "o": 100, "h": 103, "l": 99, "c": 101, "v": None},
+                        {"t": 1791293400, "o": 101, "h": 106, "l": 100, "c": 105, "v": None},
+                    ]
+                }
+            }
+        )
+    )
+
+    context = asyncio.run(provider.get_price_context("TVC:DJI", "daily", candle_count=2))
+
+    assert [candle.close for candle in context.candles] == [101, 105]
+    assert [candle.volume for candle in context.candles] == [None, None]
 
 
 @pytest.mark.parametrize(

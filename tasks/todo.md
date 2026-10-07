@@ -178,3 +178,80 @@
 - [ ] Obtain the user's confirmation for the exact add set before changing the watchlist.
 
 See [coverage dry-run](../docs/validation/global-market-coverage-dry-run-2026-10-06.md).
+
+## Task 9: Desktop watchlist quote capability gate
+
+**Description:** Confirm the existing bridge can read quote rows from the
+active `PS_Global_Indices` watchlist without changing the chart or watchlist.
+
+**Acceptance criteria:**
+
+- [x] Arbitrary-symbol OHLCV requires active chart switching and is not used.
+- [x] Live Desktop watchlist rows match the exact approved 30-symbol sequence.
+- [x] A live read did not change the active chart (`NSEIX:NIFTY1!`, daily).
+- [x] Official OHLCV samples have valid OHLC fields with `v: null`; this was
+  the cause of the backend validation error.
+
+**Verification:**
+
+- [x] Run the TradingView Desktop readiness probe after restart; CDP is
+  reachable and the bridge reports `api_available: true`.
+- [x] Record result in
+  `docs/validation/desktop-ohlcv-fallback-capability.md`.
+
+**Dependencies:** Approved Desktop-fallback specification.
+
+**Files likely touched:**
+
+- `docs/validation/desktop-ohlcv-fallback-capability.md`
+
+**Estimated scope:** Small (1 file)
+
+## Checkpoint: Desktop quote fallback capability
+
+- [x] Current bridge does not provide symbol-addressable Desktop OHLCV.
+- [x] User selected the visible-watchlist quote fallback.
+- [x] No chart, pane, layout, or watchlist mutation occurred.
+
+## Task 10: Desktop watchlist quote reader
+
+**Description:** Normalize visible Desktop watchlist quote rows behind a
+read-only adapter with an exact approved-symbol-sequence check.
+
+**Acceptance criteria:**
+
+- [x] Price and percentage fields are parsed and source attribution is kept.
+- [x] Missing change percentage retains the price and remains unavailable for
+  breadth.
+- [x] Only the `watchlist get` read command is invoked.
+
+**Verification:**
+
+- [x] Focused tests pass: `uv run pytest -q tests/test_desktop_bridge.py`.
+- [x] Full backend suite passes: `uv run pytest -q`.
+
+**Dependencies:** Task 9.
+
+**Estimated scope:** Medium (3 files)
+
+## Task 11: Official-first Global Market quote fallback
+
+**Description:** Use a Desktop watchlist quote only after official MCP evidence
+fails and expose the selected evidence source to the dashboard.
+
+**Acceptance criteria:**
+
+- [x] Official valid evidence bypasses Desktop.
+- [x] Official failure makes one Desktop fallback attempt per snapshot.
+- [x] A Desktop row with no percentage remains unavailable and excluded from
+  breadth.
+
+**Verification:**
+
+- [x] Focused tests pass: `uv run pytest -q tests/test_global_market_live.py`.
+- [x] Full backend suite plus frontend lint/typecheck/build/tests pass.
+- [x] Live read-only check confirms active chart and watchlist are unchanged.
+
+**Dependencies:** Task 10.
+
+**Estimated scope:** Medium (up to 5 files)

@@ -1,6 +1,6 @@
-# PS_Global_Indices coverage dry-run — 2026-10-06
+# PS_Global_Indices coverage dry-run — 2026-10-07
 
-**Mode:** Read-only proposal. No TradingView change was made.
+**Mode:** Read-only proposal and verification. The user manually added the approved available symbols; the application made no TradingView change.
 
 ## Evidence used
 
@@ -76,4 +76,9 @@ None proposed. The section order and all current row orders remain unchanged unt
 
 `PS_Global_Indices` is enough for a first-pass US and India-context scan, but has important Europe, Asia-Pacific, China, GIFT Nifty, and US-small-cap coverage gaps. No changes were applied.
 
-The proposal is now ready for the user's exact confirmation. It contains no deletes and no reorder.
+## Final verified state
+
+- Added by the user: `CBOEFTSE:RUT` in USA and `SSE:000300` in ASIA PACIFIC.
+- Intentionally not added: `FXCM:EUSTX50`, because the instrument was unavailable to the user.
+- No delete or reorder was applied.
+- The dashboard's approved static read-only snapshot now matches the resulting 30-symbol watchlist.

@@ -1,4 +1,4 @@
-# Global Market source readiness — 2026-10-06
+# Global Market source readiness — 2026-10-07
 
 ## Task 1 status
 
@@ -14,20 +14,20 @@
 
 ## Read-only `PS_Global_Indices` snapshot
 
-The following order and symbols were read without mutation:
+The following order and symbols were read without mutation after the user manually maintained the watchlist. This is the approved dashboard universe:
 
 | Section | Visible symbols |
 | --- | --- |
-| USA | `TVC:DJI`, `DJCFD:DJT`, `NASDAQ:NDX`, `CBOE:MAGS`, `NASDAQ:IXIC`, `VANTAGE:USDINR`, `TVC:SPX`, `BLACKBULL:DJ30.F`, `BLACKBULL:US30`, `TVC:NYA`, `TVC:DXY`, `TVC:VIX` |
-| EUROPE | No visible instrument rows |
-| ASIA PACIFIC | No visible instrument rows |
+| USA | `TVC:DJI`, `DJCFD:DJT`, `NASDAQ:NDX`, `CBOE:MAGS`, `NASDAQ:IXIC`, `VANTAGE:USDINR`, `TVC:SPX`, `BLACKBULL:DJ30.F`, `BLACKBULL:US30`, `TVC:NYA`, `CBOEFTSE:RUT`, `TVC:DXY`, `TVC:VIX` |
+| EUROPE | `XETR:DAX`, `TVC:CAC40`, `FTSE:UKX` |
+| ASIA PACIFIC | `NSEIX:NIFTY1!`, `TVC:HSI`, `TVC:NI225`, `TVC:STI`, `KRX:KOSPI`, `ASX:XJO`, `IDX:COMPOSITE`, `SET:SET`, `TWSE:TAIEX`, `SSE:000300` |
 | INDIA ADRS | `NYSE:INFY`, `NYSE:WIT`, `NYSE:IBN`, `NYSE:HDB` |
 
-Europe and Asia Pacific are recorded as watchlist coverage gaps for the later dry-run. They are not automatically populated or otherwise modified.
+`FXCM:EUSTX50` was considered but is intentionally excluded because the instrument was not available to the user. The dashboard never substitutes a different EURO STOXX 50 feed.
 
 ## Impact
 
-No replacement universe was created, and no source, layout, watchlist, indicator, drawing, or alert was changed.
+No replacement universe was created. The user manually maintained the approved watchlist; the application only consumes the resulting read-only snapshot. No source, layout, indicator, drawing, or alert was changed by the application.
 
 ## Required recovery
 

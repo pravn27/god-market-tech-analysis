@@ -117,6 +117,9 @@ def _candles(payload: Mapping[str, Any]) -> list[Candle]:
     parsed: list[Candle] = []
     for bar in _payload_records(payload):
         try:
+            volume_value = bar.get("volume")
+            if volume_value is None:
+                volume_value = bar.get("v")
             parsed.append(
                 Candle(
                     timestamp=_timestamp(bar.get("timestamp", bar.get("time", bar.get("t")))),
@@ -124,11 +127,7 @@ def _candles(payload: Mapping[str, Any]) -> list[Candle]:
                     high=float(bar["high"] if "high" in bar else bar["h"]),
                     low=float(bar["low"] if "low" in bar else bar["l"]),
                     close=float(bar["close"] if "close" in bar else bar["c"]),
-                    volume=(
-                        float(bar["volume"] if "volume" in bar else bar["v"])
-                        if "volume" in bar or "v" in bar
-                        else None
-                    ),
+                    volume=float(volume_value) if volume_value is not None else None,
                 )
             )
         except (KeyError, TypeError, ValueError) as error:
@@ -208,7 +207,8 @@ class OfficialMCPProvider:
         warnings: list[str] = []
         try:
             technical_result = await self._tool_caller.call_tool(
-                "get_technicals_rating", {"symbol": symbol, "interval": technicals_interval(context.timeframe)}
+                "mcp-tv-get-technicals-rating",
+                {"symbol": symbol, "interval": technicals_interval(context.timeframe)},
             )
             technicals = _technical_snapshot(_decode_tool_result(technical_result))
         except Exception:
@@ -229,7 +229,7 @@ class OfficialMCPProvider:
         interval = normalize_timeframe(timeframe)
         try:
             ohlcv_result = await self._tool_caller.call_tool(
-                "get_ohlcv", {"symbol": symbol, "interval": interval, "count": candle_count}
+                "mcp-tv-get-ohlcv", {"symbol": symbol, "interval": interval, "count": candle_count}
             )
         except DataSourceUnavailableError:
             raise

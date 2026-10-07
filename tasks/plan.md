@@ -52,9 +52,9 @@ Desktop bridge readiness + read-only watchlist snapshot
 
 ### Checkpoint: daily dashboard
 
-- [ ] Backend/API/frontend tests pass and frontend build succeeds.
-- [ ] A fixture-backed Daily view works end-to-end locally.
-- [ ] Human reviews the dashboard information hierarchy and source-status presentation.
+- [x] Backend/API/frontend tests pass and frontend build succeeds.
+- [x] A fixture-backed Daily view works end-to-end locally.
+- [x] Human reviews the dashboard information hierarchy and source-status presentation.
 
 ### Phase 3: Live source and usability
 
@@ -64,9 +64,9 @@ Desktop bridge readiness + read-only watchlist snapshot
 
 ### Checkpoint: feature complete
 
-- [ ] Tests, lint, type checks, and production build pass.
-- [ ] One local live read-only dashboard check is recorded.
-- [ ] No credentials are exposed and no TradingView watchlist/layout was modified without the user's exact confirmation.
+- [x] Tests, lint, type checks, and production build pass.
+- [x] One local live read-only dashboard check is recorded.
+- [x] No credentials are exposed and no TradingView watchlist/layout was modified without the user's exact confirmation.
 
 ## Risks and mitigations
 
@@ -83,3 +83,104 @@ Desktop bridge readiness + read-only watchlist snapshot
 - Desktop MCP is currently not running. Task 1 must establish the actual `PS_Global_Indices` section structure before live integration.
 - Whether the initial sentiment display should include non-index proxies such as VIX, DXY, yields, commodities, or India ADRs is deferred to the coverage dry-run and requires explicit user confirmation for additions.
 - E-04 technical enrichment stays planned separately; it is not part of the first Global Market daily dashboard slice.
+
+---
+
+# Implementation Plan: Global Market Desktop watchlist quote fallback
+
+## Overview
+
+Accept null official-MCP volume when the OHLC fields are valid, then use a
+source-labelled, read-only Desktop watchlist quote only when official evidence
+is unavailable. The official MCP remains primary.
+
+## Architecture decisions
+
+- The fallback is per instrument and runs only after official MCP validation
+  fails.
+- The existing Desktop bridge cannot read arbitrary-symbol candles without
+  switching a chart, so the fallback reads the currently selected watchlist.
+- The watchlist is accepted only when its exact ordered symbol list matches the
+  approved `PS_Global_Indices` snapshot.
+- A Desktop quote without a displayed change percentage retains its price but
+  stays unavailable for directional breadth.
+
+## Dependency graph
+
+```text
+Official payload validation and Desktop visible-watchlist quote proof
+        │
+        ├── Optional-volume handling in official candle normalization
+        │        │
+        │        └── Desktop watchlist reader + normalization tests
+        │                 │
+        │                 └── Global Market official-first fallback orchestration
+        │
+        └── source-labelled API/UI evidence
+```
+
+## Task list
+
+### Phase 4: Capability gate
+
+- [x] Task 9: Prove or reject a symbol-addressable, non-mutating Desktop OHLCV
+  capability for two daily candles.
+
+  - Acceptance: No call changes the active chart symbol, timeframe, pane,
+    layout, or watchlist; the proof records the exact bridge capability and its
+    response shape.
+  - Verify: Run the TradingView session pre-flight and a read-only capability
+    check; compare active chart state before and after.
+  - Dependency: Approved fallback specification.
+  - Scope: Small; validation/bridge documentation only.
+
+### Checkpoint: capability decision
+
+- [x] Arbitrary-symbol candles remain unavailable without changing chart state.
+- [x] Visible watchlist read returns the approved 30-symbol sequence and is
+  documented in `docs/validation/desktop-ohlcv-fallback-capability.md`.
+
+### Phase 5: Safe fallback vertical slice
+
+- [x] Task 10: Add a normalized Desktop watchlist quote reader and contract
+  tests.
+
+  - Acceptance: It validates the exact approved ordered universe, parses last
+    price/change percent, and invokes only the read-only `watchlist get` CLI.
+  - Verify: `uv run pytest -q tests/test_desktop_bridge.py`.
+  - Dependency: Task 9 capability proof.
+  - Scope: Medium; provider module and tests.
+
+- [x] Task 11: Add official-first fallback orchestration to Global Market and
+  surface the selected source in local API/dashboard evidence.
+
+  - Acceptance: Official success bypasses Desktop; official failure attempts
+    one watchlist read; missing change percentages stay out of breadth.
+  - Verify: `uv run pytest -q tests/test_global_market_live.py`, frontend
+    lint/typecheck/build/test commands, and a local source-label visual check.
+  - Dependency: Task 10.
+  - Scope: Medium; orchestration, API types/UI evidence, and tests.
+
+### Checkpoint: complete
+
+- [x] Full backend suite passes.
+- [x] Live read-only Desktop fallback check confirms the 30-symbol list and
+  active chart remained unchanged.
+- [x] Each fallback item identifies Desktop-assisted evidence and the local
+  observation time.
+
+## Risks and mitigations
+
+| Risk | Impact | Mitigation |
+| --- | --- | --- |
+| Desktop bridge only exposes active-chart candles | High | Use visible watchlist rows; never switch the chart. |
+| Active watchlist differs from the approved universe | High | Reject the entire Desktop snapshot unless symbol order matches exactly. |
+| A row lacks a change percentage | Medium | Retain price, but exclude the item from directional breadth. |
+| Desktop is closed or CDP is unavailable | Medium | Keep official data primary and return typed unavailable evidence. |
+| Source provenance is hidden | High | Contract and UI test source label for every fallback result. |
+
+## Open question
+
+The bridge does not expose quote timestamps or watchlist identity through its
+read operation. The fallback therefore requires an exact ordered symbol match
+and labels its observation time as the local read time.

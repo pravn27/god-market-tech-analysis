@@ -164,8 +164,8 @@ Official payload validation and Desktop visible-watchlist quote proof
 ### Checkpoint: complete
 
 - [x] Full backend suite passes.
-- [x] Live read-only Desktop fallback check confirms the 30-symbol list and
-  active chart remained unchanged.
+- [x] Live read-only Desktop fallback was verified when the approved
+  30-symbol list was active; the bridge does not switch watchlists.
 - [x] Each fallback item identifies Desktop-assisted evidence and the local
   observation time.
 
@@ -184,3 +184,50 @@ Official payload validation and Desktop visible-watchlist quote proof
 The bridge does not expose quote timestamps or watchlist identity through its
 read operation. The fallback therefore requires an exact ordered symbol match
 and labels its observation time as the local read time.
+
+### Phase 6: Local runtime enablement
+
+- [x] Task 12: Configure a local-only bridge path and make the supported backend
+  startup command load it.
+
+  - Acceptance: The bridge CLI path is stored in an ignored local environment
+    file, never hard-coded into tracked application code; the example and
+    runbook explain setup on each machine.
+  - Verify: Existing bridge and fallback regression tests pass with the
+    environment file loaded; confirm the API can invoke the configured CLI.
+  - Dependency: Task 11 and a healthy read-only Desktop bridge.
+  - Scope: Medium; example config, ignored local config, and startup docs.
+
+- [x] Task 13: Restart the local API with fallback configuration and verify
+  failover through the Global Market endpoint.
+
+  - Acceptance: When Official MCP evidence is unavailable, the endpoint returns
+    any Desktop-readable prices as `desktop_bridge` with a local observation
+    time; missing change percentages remain excluded from breadth.
+  - Verify: Check `/health`, `/api/v1/global-market-sentiment`, bridge health,
+    source labels, the exact 30-symbol order, and that the active chart remains
+    unchanged.
+  - Dependency: Task 12.
+  - Scope: Small; local runtime verification and delivery evidence only.
+
+### Checkpoint: runtime fallback enabled
+
+- [x] Local config remains ignored and contains no credentials.
+- [x] Focused and full backend tests pass.
+- [x] Live API demonstrates Official-first, Desktop-assisted fallback while
+  retaining explicit unavailable evidence where quote fields are missing.
+- [x] Backend startup and shutdown are controlled by the documented command.
+
+- [x] Task 14: Add a safe macOS startup helper for TradingView bridge readiness.
+
+  - Acceptance: One command reuses TradingView if CDP port 9222 is ready, or
+    gracefully relaunches it with CDP enabled; it waits for bridge readiness,
+    validates the active watchlist, then launches the API.
+  - Safety: Never force-kill TradingView or silently switch/edit the active
+    watchlist. Warn clearly when the active symbols do not match the approved
+    `PS_Global_Indices` snapshot.
+  - Verify: Shell syntax, backend tests, and live API fallback with the exact
+    approved watchlist active. The relaunch branch remains a recovery path and
+    is not exercised when a healthy CDP session already exists.
+  - Dependency: Task 13.
+  - Scope: Small; local startup helper and operational documentation.

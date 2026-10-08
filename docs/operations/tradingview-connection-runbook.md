@@ -27,26 +27,56 @@ values as Desktop-assisted and uses the local read time. If a row has no change
 percentage, its displayed price is retained but the instrument is excluded
 from breadth.
 
-Configure the bridge CLI path in the environment that starts the backend:
+Configure the bridge CLI path in the ignored `.env.local` file (copy
+`.env.example` once, then use the path appropriate for this machine):
 
 ```bash
-TRADINGVIEW_DESKTOP_BRIDGE_CLI="/path/to/tradingview-mcp/src/cli/index.js"
+TRADINGVIEW_DESKTOP_BRIDGE_CLI=/path/to/tradingview-mcp/src/cli/index.js
+# Optional when Node.js is not available on PATH:
+TRADINGVIEW_DESKTOP_BRIDGE_NODE=/path/to/node
 ```
 
-Node.js must be on `PATH`. Optionally set
-`TRADINGVIEW_DESKTOP_BRIDGE_NODE` to the full Node.js executable path. The
-TradingView Desktop app must be running with the local CDP port enabled. The
-backend invokes only `watchlist get`; it does not switch the chart or edit the
-watchlist.
+On macOS, start the backend and prepare TradingView Desktop with:
+
+```bash
+./scripts/start-local.sh
+```
+
+The helper reuses a TradingView CDP session on port 9222 when available. If
+TradingView is open without CDP, it requests a graceful quit and relaunches
+TradingView with `--remote-debugging-port=9222`; it never force-kills the app.
+It waits until the bridge status reports a connected chart API, then compares
+the active watchlist's exact ordered symbols with the approved
+`PS_Global_Indices` snapshot. It does not change which list is active or alter
+watchlist contents. If another list is selected, startup continues with a
+warning because Official MCP remains the primary source, but Desktop fallback
+will be rejected until `PS_Global_Indices` is selected manually. The backend
+invokes only the read-only `watchlist get` command.
+
+The frontend remains separate. Start it in another terminal with
+`cd frontend && npm run dev`. To stop the backend, press Ctrl+C in the
+terminal running `start-local.sh`.
+
+When Official MCP cannot provide evidence (such as an initialization error,
+timeout, upstream handshake failure, or rate limit), the Global Market
+request attempts the Desktop quote fallback once for that snapshot. It accepts
+the response only if its ordered symbols exactly match the approved
+`PS_Global_Indices` snapshot. Desktop values are source-labelled and use the
+local observation time because the bridge does not provide per-quote
+timestamps. If the row has a price but no daily change percentage, the price
+may be shown while the instrument remains excluded from breadth. This fallback
+does not provide historical candles and cannot replace OHLCV for technical
+indicators or multi-timeframe analysis. If both sources fail, values remain
+unavailable; do not present stale values as live.
 
 ## If connection is unavailable
 
 1. Do not act on stale setup results.
-2. Check the official MCP authentication and response state first.
-3. If the primary source is unavailable, determine whether the approved Desktop fallback can provide the required context.
-4. When fallback is used, confirm TradingView Desktop and its local debugging/connection requirements are available.
-5. Inspect the backend health view and logs for the failing component.
-6. Confirm a current timestamp and source ID before resuming evaluation.
+2. Check Official MCP authentication and tool initialization; an authenticated token alone does not prove market-data tools are usable.
+3. On 429 responses, avoid rapid retries and allow the request to use the Desktop fallback.
+4. Check bridge health with `node <bridge>/src/cli/index.js status` and confirm CDP at `127.0.0.1:9222`.
+5. Inspect the API result for `desktop_bridge` source attribution, local observation time, and per-instrument unavailable reasons.
+6. Confirm the exact approved watchlist order and current source timestamp before resuming evaluation.
 
 ## Safety rule
 

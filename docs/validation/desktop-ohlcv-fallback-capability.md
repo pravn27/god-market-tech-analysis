@@ -49,6 +49,50 @@
    unavailable, so Desktop fallback readiness is not claimed for that latest
    check; the API returns an explicit fallback-unavailable warning instead.
 
+## Runtime enablement verification — 2026-10-08
+
+- The Desktop app was reopened with CDP enabled. The bridge reports
+  `success=true`, `cdp_connected=true`, and `api_available=true`; the active
+  chart remained `TVC:DJI`, daily.
+- `watchlist get` returned 30 symbols in the exact approved
+  `PS_Global_Indices` order. The fallback reader validated that order before
+  accepting the snapshot.
+- The backend was restarted using `uv run --env-file .env.local uvicorn
+  god_market_api.app:app --reload --no-access-log`. The machine-specific bridge
+  path is in ignored `.env.local`; no credentials are stored there.
+- A live request to `/api/v1/global-market-sentiment?timeframe=daily` returned
+  `partial` completeness. All 30 items had `desktop_bridge` provenance and a
+  local observation timestamp. Breadth counted 4 advancing and 1 unchanged;
+  25 quote rows had no displayed daily percentage and remained unavailable for
+  directional breadth.
+- The endpoint preserved the approved 30-symbol sequence and did not change
+  the chart or watchlist. This verifies quote-only fallback, not OHLCV or
+  multi-timeframe recovery.
+- At this check, official OAuth status was `authenticated` but listed 0
+  discovered tools; the API health result marked the Official MCP provider
+  `not_configured`. The Desktop fallback nevertheless returned the visible
+  watchlist quotes. These status fields are kept separate from the per-item
+  source attribution.
+
+## Startup diagnosis — 2026-10-08
+
+- The earlier raw `uv run ... uvicorn` command starts only the API; it does
+  not launch TradingView with CDP enabled or validate which watchlist is active.
+- TradingView was reachable at CDP port 9222 and its bridge chart API was
+  healthy, but the currently active list contained 29 Nifty-related symbols,
+  not the approved 30-symbol `PS_Global_Indices` list.
+- The fallback correctly rejects that list instead of reading unrelated
+  instruments. The active list was not changed during diagnosis.
+- A new macOS startup helper now performs bridge readiness and watchlist
+  preflight before starting the backend. The backend may still start when the
+  list differs, with a warning, because Official MCP remains the primary
+  source. Select `PS_Global_Indices` manually to enable Desktop fallback.
+- In the final startup-helper run, the active list matched the approved
+  30-symbol snapshot. `/health` responded, and the Global Market endpoint
+  returned 30 priced instruments labeled `desktop_bridge`. The backend is
+  left running in the foreground terminal started by the helper; Ctrl+C stops
+  it.
+
 ## Decision
 
 The current bridge does not meet the symbol-addressable, non-mutating OHLCV

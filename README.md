@@ -32,7 +32,34 @@ Requires Python 3.10 or newer. The project uses the official MCP Python SDK, whi
 
 ```bash
 uv sync --group dev
-uv run uvicorn god_market_api.app:app --reload --no-access-log
+```
+
+Create `.env.local` once by copying `.env.example`, then set
+`TRADINGVIEW_DESKTOP_BRIDGE_CLI` to the local bridge's `src/cli/index.js`
+path. This path is machine-specific and `.env.local` is ignored by Git. On
+each machine, use its own local path. On macOS, start the local stack with:
+
+```bash
+./scripts/start-local.sh
+```
+
+The helper reuses TradingView Desktop when its bridge is already available;
+otherwise it gracefully quits and relaunches the app with the required CDP
+port (`9222`). It waits for the chart API, checks the active watchlist against
+the approved `PS_Global_Indices` symbols, then starts the API. It never force
+closes TradingView or changes the active watchlist. If another list is active,
+it prints a warning: Official MCP can still be used, but Desktop fallback will
+not be accepted until `PS_Global_Indices` is selected in TradingView.
+
+The local environment file configures only the Desktop fallback. Official
+TradingView MCP remains the primary source. If the Desktop bridge is not
+installed or configured, the API reports the fallback as unavailable rather
+than substituting data. The frontend remains a separate process. Start it in
+another terminal with:
+
+```bash
+cd frontend
+npm run dev
 ```
 
 The API is local-only. Visit `http://127.0.0.1:8000/docs` for its generated API documentation.

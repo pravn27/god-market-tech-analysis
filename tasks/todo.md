@@ -255,3 +255,81 @@ fails and expose the selected evidence source to the dashboard.
 **Dependencies:** Task 10.
 
 **Estimated scope:** Medium (up to 5 files)
+
+## Task 12: Configure the local Desktop bridge fallback
+
+**Description:** Add a safe local environment-file workflow for the existing read-only bridge and document how the backend loads that configuration on startup.
+
+**Acceptance criteria:**
+
+- [x] The machine-specific CLI path is stored only in ignored `.env.local`; tracked files contain a placeholder, not a personal path or credential.
+- [x] The documented backend startup command loads `.env.local` and preserves the existing official-first provider order.
+- [x] Existing tests protect the read-only CLI contract and Official-first Desktop fallback behavior.
+
+**Verification:**
+
+- [x] `uv run --env-file .env.local pytest -q tests/test_desktop_bridge.py tests/test_global_market_live.py`
+
+**Dependencies:** Task 11 and a healthy read-only Desktop bridge.
+
+**Files likely touched:**
+
+- `.env.example`
+- `README.md`
+- `docs/operations/tradingview-connection-runbook.md`
+
+**Estimated scope:** Medium (4 files plus ignored local config)
+
+## Task 13: Verify runtime failover end to end
+
+**Description:** Restart the local backend with the bridge configuration and verify the Global Market API falls back to Desktop when Official MCP cannot provide evidence.
+
+**Acceptance criteria:**
+
+- [x] Desktop quote evidence is labeled `desktop_bridge` with a local observation time.
+- [x] Missing percentage values retain a price only when available and remain excluded from breadth; invalid watchlists are rejected.
+- [x] Active chart and watchlist are unchanged by the read-only fallback.
+
+**Verification:**
+
+- [x] `/health` and the Global Market endpoint respond after startup.
+- [x] Live response is checked for the exact approved 30-symbol sequence and source/freshness attribution.
+- [x] Backend started with the documented command for live verification and
+  was stopped afterward at the user's request.
+
+**Dependencies:** Task 12.
+
+**Files likely touched:**
+
+- `docs/validation/desktop-ohlcv-fallback-capability.md`
+- Local runtime; no application logic change expected.
+
+**Estimated scope:** Small (runtime verification only)
+
+## Task 14: Prepare the TradingView bridge before backend startup
+
+**Description:** Provide one macOS command that ensures TradingView Desktop is
+available over its required CDP port, waits for the bridge API, validates the
+active watchlist, and then starts the local backend.
+
+**Acceptance criteria:**
+
+- [x] Reuse a healthy TradingView CDP session on port 9222.
+- [x] If CDP is absent, request a graceful app quit and relaunch with port 9222;
+  never force-kill TradingView.
+- [x] Wait for the bridge chart API before starting the backend.
+- [x] Compare the active watchlist against the approved ordered symbols and
+  warn when it differs, without changing watchlist selection or contents.
+- [x] Official MCP remains usable if Desktop fallback is unavailable.
+
+**Verification:**
+
+- [x] `bash -n scripts/start-local.sh`
+- [x] Focused fallback tests pass.
+- [x] Live script run confirms healthy-bridge reuse and exact active-watchlist
+  validation; the Global Market API returned all 30 items from `desktop_bridge`.
+- [x] Full backend suite passes.
+
+**Dependencies:** Task 13.
+
+**Estimated scope:** Small (startup helper and operational documentation)

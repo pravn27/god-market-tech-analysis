@@ -74,14 +74,20 @@ WATCHLIST = (
 
 
 class FixtureProvider:
-    def __init__(self, unavailable_symbols: set[str] | None = None) -> None:
+    def __init__(
+        self, unavailable_symbols: set[str] | None = None, transient_failures: dict[str, int] | None = None
+    ) -> None:
         self.unavailable_symbols = unavailable_symbols or set()
+        self.transient_failures = dict(transient_failures or {})
         self.calls: list[tuple[str, str]] = []
 
     async def get_chart_context(self, symbol: str, timeframe: str) -> ChartContext:
         self.calls.append((symbol, timeframe))
         if symbol in self.unavailable_symbols:
             raise DataSourceUnavailableError(f"{symbol} is unavailable")
+        if self.transient_failures.get(symbol, 0) > 0:
+            self.transient_failures[symbol] -= 1
+            raise DataSourceUnavailableError("The official MCP rejected the market-data request.")
         closes = {"TVC:SPX": (100.0, 105.0), "TVC:VIX": (20.0, 18.0)}.get(symbol, (10.0, 10.0))
         return ChartContext(
             symbol=symbol,
@@ -108,7 +114,9 @@ class FixtureDesktopWatchlistReader:
 
 def test_live_provider_uses_official_context_and_keeps_unavailable_items_visible() -> None:
     provider = FixtureProvider(unavailable_symbols={"NYSE:INFY"})
-    live = GlobalMarketLiveSnapshotProvider(provider, watchlist_groups=WATCHLIST, clock=lambda: NOW)
+    live = GlobalMarketLiveSnapshotProvider(
+        provider, watchlist_groups=WATCHLIST, clock=lambda: NOW, retry_attempts=0
+    )
 
     snapshot = asyncio.run(live.get_snapshot("daily"))
 
@@ -121,6 +129,23 @@ def test_live_provider_uses_official_context_and_keeps_unavailable_items_visible
     assert unavailable.source is DataSource.OFFICIAL_MCP
     assert unavailable.unavailable_reason == "NYSE:INFY is unavailable"
     assert provider.calls == [("TVC:SPX", "daily"), ("TVC:VIX", "daily"), ("NYSE:INFY", "daily")]
+
+
+def test_live_provider_retries_a_transient_official_failure_once() -> None:
+    provider = FixtureProvider(transient_failures={"TVC:SPX": 1, "TVC:VIX": 2})
+    live = GlobalMarketLiveSnapshotProvider(
+        provider, watchlist_groups=WATCHLIST, clock=lambda: NOW, retry_delay_seconds=0
+    )
+
+    snapshot = asyncio.run(live.get_snapshot("daily"))
+
+    spx, vix = snapshot.groups[0].instruments
+    assert spx.source is DataSource.OFFICIAL_MCP
+    assert spx.change_percent == 5.0
+    assert vix.direction is MarketDirection.UNAVAILABLE
+    assert vix.unavailable_reason == "The official MCP rejected the market-data request."
+    assert provider.calls.count(("TVC:SPX", "daily")) == 2
+    assert provider.calls.count(("TVC:VIX", "daily")) == 2
 
 
 def test_live_provider_rejects_an_invalid_concurrency_limit() -> None:
@@ -157,6 +182,7 @@ def test_live_provider_uses_desktop_watchlist_as_labeled_fallback_for_failed_off
         desktop_watchlist_reader=desktop,
         watchlist_groups=WATCHLIST,
         clock=lambda: NOW,
+        retry_attempts=0,
     )
 
     snapshot = asyncio.run(live.get_snapshot("daily"))
@@ -186,6 +212,7 @@ def test_desktop_quote_without_daily_change_shows_price_but_stays_out_of_breadth
         desktop_watchlist_reader=desktop,
         watchlist_groups=WATCHLIST,
         clock=lambda: NOW,
+        retry_attempts=0,
     )
 
     snapshot = asyncio.run(live.get_snapshot("daily"))

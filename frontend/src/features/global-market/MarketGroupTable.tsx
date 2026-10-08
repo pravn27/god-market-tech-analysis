@@ -1,93 +1,86 @@
-import { Button, Table, Tag, Typography } from 'antd'
+import { ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons'
+import { Button, Card, Table, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 
 import type { GlobalMarketGroup, GlobalMarketInstrument } from '../../api/client'
+import MarketGroupHeader from './MarketGroupHeader'
+import {
+  changeTagColor,
+  formatChange,
+  formatPrice,
+  freshnessColor,
+  shortSymbol,
+  sourceColor,
+  sourceLabel,
+} from './marketFormat'
 
 interface MarketGroupTableProps {
   group: GlobalMarketGroup
   onSelect: (instrument: GlobalMarketInstrument) => void
 }
 
-const directionColor: Record<GlobalMarketInstrument['direction'], string> = {
-  advancing: 'success',
-  declining: 'error',
-  unchanged: 'default',
-  unavailable: 'warning',
-}
-
-const freshnessColor: Record<GlobalMarketInstrument['freshness_state'], string> = {
-  ready: 'success',
-  stale: 'warning',
-  unavailable: 'error',
-  not_configured: 'default',
-}
-
-const sourceLabel: Record<GlobalMarketInstrument['source'], string> = {
-  official_mcp: 'OFFICIAL MCP',
-  desktop_bridge: 'DESKTOP ASSISTED',
-  fixture: 'FIXTURE',
-}
-
-const sourceColor: Record<GlobalMarketInstrument['source'], string> = {
-  official_mcp: 'blue',
-  desktop_bridge: 'gold',
-  fixture: 'default',
-}
+const byNullableNumber = (a: number | null, b: number | null) => (a ?? -Infinity) - (b ?? -Infinity)
 
 const columns: ColumnsType<GlobalMarketInstrument> = [
   {
-    title: 'Instrument',
-    dataIndex: 'display_name',
-    key: 'instrument',
-    render: (displayName: string, item) => (
+    title: 'Index',
+    dataIndex: 'symbol',
+    key: 'symbol',
+    width: 130,
+    render: (symbol: string) => (
       <div>
-        <Typography.Text strong>{displayName}</Typography.Text>
-        <div><Typography.Text type="secondary">{item.symbol}</Typography.Text></div>
+        <Typography.Text strong>{shortSymbol(symbol)}</Typography.Text>
+        <div><Typography.Text type="secondary" className="table-symbol">{symbol}</Typography.Text></div>
       </div>
     ),
   },
   {
-    title: 'Last',
+    title: 'Name',
+    dataIndex: 'display_name',
+    key: 'name',
+    ellipsis: true,
+  },
+  {
+    title: 'Price',
     dataIndex: 'last_price',
     key: 'last_price',
     align: 'right',
-    render: (value: number | null) => value?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—',
+    width: 140,
+    sorter: (a, b) => byNullableNumber(a.last_price, b.last_price),
+    render: (value: number | null) => <span className="table-price">{formatPrice(value)}</span>,
   },
   {
-    title: 'Change',
+    title: 'Change %',
     dataIndex: 'change_percent',
     key: 'change_percent',
-    align: 'right',
-    render: (value: number | null) => value === null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`,
-  },
-  {
-    title: 'Direction',
-    dataIndex: 'direction',
-    key: 'direction',
-    render: (direction: GlobalMarketInstrument['direction']) => (
-      <Tag color={directionColor[direction]}>{direction.toUpperCase()}</Tag>
-    ),
+    align: 'center',
+    width: 130,
+    sorter: (a, b) => byNullableNumber(a.change_percent, b.change_percent),
+    render: (value: number | null, item) => {
+      if (value === null) return <Tag color="warning" title={item.unavailable_reason ?? undefined}>Unavailable</Tag>
+      const Icon = value > 0 ? ArrowUpOutlined : value < 0 ? ArrowDownOutlined : null
+      return (
+        <Tag color={changeTagColor(value)} className="table-change">
+          {Icon && <Icon />} {formatChange(value)}
+        </Tag>
+      )
+    },
   },
   {
     title: 'Source',
     dataIndex: 'source',
     key: 'source',
-    render: (source: GlobalMarketInstrument['source']) => (
-      <Tag color={sourceColor[source]}>{sourceLabel[source]}</Tag>
-    ),
+    width: 150,
+    render: (source: GlobalMarketInstrument['source']) => <Tag color={sourceColor[source]}>{sourceLabel[source]}</Tag>,
   },
   {
     title: 'Freshness',
     dataIndex: 'freshness_state',
     key: 'freshness',
+    width: 130,
     render: (freshness: GlobalMarketInstrument['freshness_state']) => (
       <Tag color={freshnessColor[freshness]}>{freshness.replace('_', ' ').toUpperCase()}</Tag>
     ),
-  },
-  {
-    title: 'Evidence note',
-    key: 'note',
-    render: (_, item) => item.unavailable_reason ?? (item.warnings.join(' ') || 'Current evidence available.'),
   },
 ]
 
@@ -97,13 +90,22 @@ export default function MarketGroupTable({ group, onSelect }: MarketGroupTablePr
     {
       title: 'Details',
       key: 'details',
-      render: (_, item) => <Button type="link" onClick={() => onSelect(item)}>View evidence</Button>,
+      width: 110,
+      render: (_, item) => (
+        <Button type="link" size="small" onClick={() => onSelect(item)} aria-label={`View evidence for ${item.display_name}`}>
+          Evidence
+        </Button>
+      ),
     },
   ]
 
   return (
-    <section aria-labelledby={`group-${group.name}`} className="market-group">
-      <Typography.Title id={`group-${group.name}`} level={3}>{group.name}</Typography.Title>
+    <Card
+      aria-labelledby={`group-${group.name}`}
+      className="market-group market-group-table"
+      title={<MarketGroupHeader group={group} />}
+      styles={{ body: { padding: 0 } }}
+    >
       <Table
         aria-label={`${group.name} market instruments`}
         columns={tableColumns}
@@ -111,9 +113,10 @@ export default function MarketGroupTable({ group, onSelect }: MarketGroupTablePr
         rowKey="symbol"
         pagination={false}
         size="middle"
-        scroll={{ x: 780 }}
+        scroll={{ x: 900 }}
+        rowClassName={(_, index) => (index % 2 === 1 ? 'table-row-striped' : '')}
         locale={{ emptyText: 'No instruments in this watchlist section.' }}
       />
-    </section>
+    </Card>
   )
 }

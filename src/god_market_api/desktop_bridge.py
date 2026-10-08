@@ -12,6 +12,9 @@ from typing import Mapping, Sequence
 
 from .providers import DataSourceUnavailableError
 
+# TradingView renders negative quotes with U+2212 rather than an ASCII hyphen.
+_MINUS_SIGNS = str.maketrans({sign: "-" for sign in "\u2212\u2012\u2013\u2014\ufe63\uff0d"})
+
 
 @dataclass(frozen=True)
 class DesktopWatchlistQuote:
@@ -119,7 +122,7 @@ def _parse_number(value: object, *, percent: bool = False) -> float | None:
     if isinstance(value, (float, int)):
         number = float(value)
     elif isinstance(value, str):
-        cleaned = value.strip().replace(",", "")
+        cleaned = value.strip().replace(",", "").translate(_MINUS_SIGNS)
         if percent:
             cleaned = cleaned.removesuffix("%").strip()
         try:

@@ -7,6 +7,7 @@ from typing import Callable, Protocol, Sequence
 
 from .desktop_bridge import DesktopWatchlistQuoteSnapshot, TradingViewDesktopWatchlistReader
 from .models import (
+    ChartContext,
     DataSource,
     GlobalMarketBreadth,
     GlobalMarketCompleteness,
@@ -246,9 +247,15 @@ class GlobalMarketLiveSnapshotProvider:
         clock: Callable[[], datetime] = _utc_now,
         max_provider_concurrency: int = 6,
         cache_for: timedelta = timedelta(seconds=60),
+        retry_attempts: int = 1,
+        retry_delay_seconds: float = 1.0,
     ) -> None:
         if max_provider_concurrency < 1:
             raise ValueError("max_provider_concurrency must be at least 1.")
+        if retry_attempts < 0 or retry_delay_seconds < 0:
+            raise ValueError("retry_attempts and retry_delay_seconds must not be negative.")
+        self._retry_attempts = retry_attempts
+        self._retry_delay_seconds = retry_delay_seconds
         if cache_for < timedelta(0):
             raise ValueError("cache_for must not be negative.")
         self._provider = provider
@@ -323,19 +330,19 @@ class GlobalMarketLiveSnapshotProvider:
     async def _read_instrument(
         self, definition: WatchlistInstrumentDefinition, timeframe: str
     ) -> GlobalMarketInstrument:
-        try:
-            async with self._semaphore:
-                get_price_context = getattr(self._provider, "get_price_context", None)
-                if get_price_context is not None:
-                    context = await get_price_context(definition.symbol, timeframe, candle_count=2)
-                else:
-                    context = await self._provider.get_chart_context(definition.symbol, timeframe)
-        except DataSourceUnavailableError as error:
-            return self._unavailable(definition, str(error))
-        except Exception:
-            return self._unavailable(
-                definition, "Official TradingView MCP could not provide current price evidence for this item."
-            )
+        for attempt in range(self._retry_attempts + 1):
+            try:
+                context = await self._fetch_price_context(definition.symbol, timeframe)
+                break
+            except Exception as error:
+                if attempt < self._retry_attempts:
+                    await asyncio.sleep(self._retry_delay_seconds)
+                    continue
+                if isinstance(error, DataSourceUnavailableError):
+                    return self._unavailable(definition, str(error))
+                return self._unavailable(
+                    definition, "Official TradingView MCP could not provide current price evidence for this item."
+                )
 
         candles = sorted(context.candles, key=lambda candle: candle.timestamp)
         if len(candles) < 2:
@@ -366,6 +373,13 @@ class GlobalMarketLiveSnapshotProvider:
             freshness_state=context.freshness_state,
             warnings=context.warnings,
         )
+
+    async def _fetch_price_context(self, symbol: str, timeframe: str) -> ChartContext:
+        async with self._semaphore:
+            get_price_context = getattr(self._provider, "get_price_context", None)
+            if get_price_context is not None:
+                return await get_price_context(symbol, timeframe, candle_count=2)
+            return await self._provider.get_chart_context(symbol, timeframe)
 
     def _apply_desktop_watchlist_quotes(
         self,

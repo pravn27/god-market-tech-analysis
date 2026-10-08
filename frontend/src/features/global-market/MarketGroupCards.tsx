@@ -1,67 +1,86 @@
-import { Button, Card, Tag, Typography } from 'antd'
+import { ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons'
+import { Card, Tag, Tooltip, Typography } from 'antd'
 
 import type { GlobalMarketGroup, GlobalMarketInstrument } from '../../api/client'
+import MarketGroupHeader from './MarketGroupHeader'
+import {
+  changeColor,
+  changeTagColor,
+  formatChange,
+  formatPrice,
+  shortSymbol,
+  sourceColor,
+  sourceLabel,
+} from './marketFormat'
 
 interface MarketGroupCardsProps {
   group: GlobalMarketGroup
   onSelect: (instrument: GlobalMarketInstrument) => void
 }
 
-const directionColor: Record<GlobalMarketInstrument['direction'], string> = {
-  advancing: 'success',
-  declining: 'error',
-  unchanged: 'default',
-  unavailable: 'warning',
+function trendClass(change: number | null) {
+  if (change === null || change === 0) return 'flat'
+  return change > 0 ? 'up' : 'down'
 }
 
-const sourceLabel: Record<GlobalMarketInstrument['source'], string> = {
-  official_mcp: 'OFFICIAL MCP',
-  desktop_bridge: 'DESKTOP ASSISTED',
-  fixture: 'FIXTURE',
-}
+function InstrumentCard({ instrument, onSelect }: { instrument: GlobalMarketInstrument; onSelect: () => void }) {
+  const change = instrument.change_percent
+  const ChangeIcon = change !== null && change > 0 ? ArrowUpOutlined : change !== null && change < 0 ? ArrowDownOutlined : null
 
-const sourceColor: Record<GlobalMarketInstrument['source'], string> = {
-  official_mcp: 'blue',
-  desktop_bridge: 'gold',
-  fixture: 'default',
-}
-
-function formatPrice(value: number | null) {
-  return value?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—'
-}
-
-function formatChange(value: number | null) {
-  return value === null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`
+  return (
+    <Card
+      hoverable
+      size="small"
+      role="button"
+      tabIndex={0}
+      aria-label={`View evidence for ${instrument.display_name}`}
+      className={`instrument-card instrument-card-${trendClass(change)}`}
+      style={{ borderLeftColor: changeColor(change) }}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault()
+          onSelect()
+        }
+      }}
+    >
+      <Typography.Text strong className="instrument-card-ticker">{shortSymbol(instrument.symbol)}</Typography.Text>
+      <Typography.Text type="secondary" className="instrument-card-symbol">{instrument.symbol}</Typography.Text>
+      <div className="instrument-card-price">{formatPrice(instrument.last_price)}</div>
+      <div className="instrument-card-tags">
+        {change === null ? (
+          <Tooltip title={instrument.unavailable_reason ?? 'No current value'}>
+            <Tag color="warning">Unavailable</Tag>
+          </Tooltip>
+        ) : (
+          <Tag color={changeTagColor(change)} className="instrument-card-change">
+            {ChangeIcon && <ChangeIcon />} {formatChange(change)}
+          </Tag>
+        )}
+        {instrument.source !== 'official_mcp' && (
+          <Tag color={sourceColor[instrument.source]}>{sourceLabel[instrument.source]}</Tag>
+        )}
+        {instrument.freshness_state === 'stale' && <Tag color="warning">STALE</Tag>}
+      </div>
+      <Typography.Text type="secondary" className="instrument-card-name" title={instrument.display_name}>
+        {instrument.display_name}
+      </Typography.Text>
+    </Card>
+  )
 }
 
 export default function MarketGroupCards({ group, onSelect }: MarketGroupCardsProps) {
   return (
-    <section aria-labelledby={`group-${group.name}`} className="market-group">
-      <Typography.Title id={`group-${group.name}`} level={3}>{group.name}</Typography.Title>
+    <Card aria-labelledby={`group-${group.name}`} className="market-group" title={<MarketGroupHeader group={group} />}>
       {group.instruments.length === 0 ? (
         <Typography.Text type="secondary">No instruments in this watchlist section.</Typography.Text>
       ) : (
         <div className="market-card-grid">
           {group.instruments.map((instrument) => (
-            <Card
-              key={instrument.symbol}
-              size="small"
-              title={instrument.display_name}
-              extra={<Tag color={directionColor[instrument.direction]}>{instrument.direction.toUpperCase()}</Tag>}
-            >
-              <Typography.Text type="secondary">{instrument.symbol}</Typography.Text>
-              <div><Tag color={sourceColor[instrument.source]}>{sourceLabel[instrument.source]}</Tag></div>
-              <dl className="instrument-card-values">
-                <div><dt>Last</dt><dd>{formatPrice(instrument.last_price)}</dd></div>
-                <div><dt>Daily change</dt><dd>{formatChange(instrument.change_percent)}</dd></div>
-              </dl>
-              <Button type="link" className="instrument-detail-link" onClick={() => onSelect(instrument)}>
-                View evidence
-              </Button>
-            </Card>
+            <InstrumentCard key={instrument.symbol} instrument={instrument} onSelect={() => onSelect(instrument)} />
           ))}
         </div>
       )}
-    </section>
+    </Card>
   )
 }

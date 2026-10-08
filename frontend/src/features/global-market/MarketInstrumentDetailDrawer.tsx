@@ -1,6 +1,7 @@
 import { Descriptions, Drawer, Tag, Typography } from 'antd'
 
 import type { GlobalMarketInstrument } from '../../api/client'
+import { formatChange, formatPrice, freshnessColor, sourceColor, sourceLabel } from './marketFormat'
 
 interface MarketInstrumentDetailDrawerProps {
   instrument: GlobalMarketInstrument | null
@@ -12,21 +13,6 @@ const directionColor: Record<GlobalMarketInstrument['direction'], string> = {
   declining: 'error',
   unchanged: 'default',
   unavailable: 'warning',
-}
-
-const freshnessColor: Record<GlobalMarketInstrument['freshness_state'], string> = {
-  ready: 'success',
-  stale: 'warning',
-  unavailable: 'error',
-  not_configured: 'default',
-}
-
-function formatPrice(value: number | null) {
-  return value?.toLocaleString(undefined, { maximumFractionDigits: 2 }) ?? '—'
-}
-
-function formatChange(value: number | null) {
-  return value === null ? '—' : `${value > 0 ? '+' : ''}${value.toFixed(2)}%`
 }
 
 export default function MarketInstrumentDetailDrawer({ instrument, onClose }: MarketInstrumentDetailDrawerProps) {
@@ -45,7 +31,7 @@ export default function MarketInstrumentDetailDrawer({ instrument, onClose }: Ma
             { key: 'change', label: 'Daily change', children: formatChange(instrument.change_percent) },
             { key: 'direction', label: 'Direction', children: <Tag color={directionColor[instrument.direction]}>{instrument.direction.toUpperCase()}</Tag> },
             { key: 'freshness', label: 'Freshness', children: <Tag color={freshnessColor[instrument.freshness_state]}>{instrument.freshness_state.replace('_', ' ').toUpperCase()}</Tag> },
-            { key: 'source', label: 'Source', children: instrument.source.replace('_', ' ').toUpperCase() },
+            { key: 'source', label: 'Source', children: <Tag color={sourceColor[instrument.source]}>{sourceLabel[instrument.source]}</Tag> },
             { key: 'observed', label: 'Observed', children: instrument.source_timestamp ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(instrument.source_timestamp)) : '—' },
           ]} />
           <div className="instrument-evidence-notes">

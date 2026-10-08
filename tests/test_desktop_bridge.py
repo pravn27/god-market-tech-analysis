@@ -25,6 +25,21 @@ def test_desktop_watchlist_parser_normalizes_prices_and_change_percent():
     assert result.quotes["TVC:VIX"].change_percent is None
 
 
+def test_desktop_watchlist_parser_accepts_unicode_minus_for_declines():
+    payload = {
+        "success": True,
+        "symbols": [
+            {"symbol": "TVC:DJI", "last": "51,091.10", "change_percent": "\u22120.32%"},
+            {"symbol": "TVC:HSI", "last": "23,785.80", "change_percent": "-1.05%"},
+        ],
+    }
+
+    result = parse_watchlist_payload(payload, ["TVC:DJI", "TVC:HSI"])
+
+    assert result.quotes["TVC:DJI"].change_percent == -0.32
+    assert result.quotes["TVC:HSI"].change_percent == -1.05
+
+
 def test_desktop_watchlist_parser_rejects_a_different_selected_symbol_universe():
     payload = {"success": True, "symbols": [{"symbol": "TVC:SPX", "last": "1", "change_percent": "0%"}]}
 

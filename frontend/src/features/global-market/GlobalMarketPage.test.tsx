@@ -60,7 +60,7 @@ function renderPage() {
 
 afterEach(() => vi.restoreAllMocks())
 
-test('renders breadth, ordered groups, fixture warning, and unavailable evidence', async () => {
+test('renders sentiment, ordered groups, fixture warning, and unavailable evidence', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(fixtureSnapshot), { status: 200 })))
 
   renderPage()
@@ -69,9 +69,38 @@ test('renders breadth, ordered groups, fixture warning, and unavailable evidence
   expect(screen.getByRole('heading', { name: 'INDIA ADRS' })).toBeInTheDocument()
   expect(screen.getByText('Dow Jones Industrial Average')).toBeInTheDocument()
   expect(screen.getByText(/Fixture data only/i)).toBeInTheDocument()
-  const unavailableCard = screen.getByText('Unavailable').closest('.ant-card')
-  expect(within(unavailableCard as HTMLElement).getByText('1')).toBeInTheDocument()
-  expect(screen.getByText(/Fixture does not include a current value/i)).toBeInTheDocument()
+
+  const sentiment = screen.getByRole('region', { name: 'Market sentiment' })
+  expect(within(sentiment).getByText('NEUTRAL')).toBeInTheDocument()
+  expect(within(sentiment).getByText(/Based on 1 instruments across 2 sections · 1 unavailable/)).toBeInTheDocument()
+  const neutralCard = within(sentiment).getByText('Neutral').closest('.ant-card')
+  expect(within(neutralCard as HTMLElement).getByText('100% of markets')).toBeInTheDocument()
+
+  const unavailableCard = screen.getByRole('button', { name: 'View evidence for Infosys ADR' })
+  expect(within(unavailableCard).getByText('Unavailable')).toBeInTheDocument()
+  expect(within(unavailableCard).getByText('—')).toBeInTheDocument()
+})
+
+test('classifies group sentiment with the ±0.5% neutral band', async () => {
+  const usa = fixtureSnapshot.groups[0]
+  const movingSnapshot = {
+    ...fixtureSnapshot,
+    groups: [{
+      ...usa,
+      instruments: [
+        { ...usa.instruments[0], symbol: 'TVC:SPX', change_percent: 1.2 },
+        { ...usa.instruments[0], symbol: 'TVC:NDX', change_percent: -0.9 },
+        { ...usa.instruments[0], symbol: 'TVC:RUT', change_percent: -0.6 },
+      ],
+    }],
+  }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(movingSnapshot), { status: 200 })))
+
+  renderPage()
+
+  await screen.findByRole('heading', { name: 'USA' })
+  expect(screen.getByText('67% Bearish')).toBeInTheDocument()
+  expect(within(screen.getByRole('region', { name: 'Market sentiment' })).getByText('BEARISH')).toBeInTheDocument()
 })
 
 test('refresh refetches only the local API', async () => {
@@ -124,35 +153,34 @@ test('labels Desktop-assisted fallback values in table and card views', async ()
 
   renderPage()
 
-  expect((await screen.findAllByText('DESKTOP ASSISTED')).length).toBeGreaterThan(0)
-  fireEvent.click(screen.getByRole('radio', { name: /Cards/ }))
+  expect(await screen.findAllByText('DESKTOP ASSISTED')).toHaveLength(2)
+  fireEvent.click(screen.getByRole('radio', { name: /Table/ }))
   expect(screen.getAllByText('DESKTOP ASSISTED')).toHaveLength(2)
 })
 
-test('filters sections, switches to cards, and opens read-only evidence details', async () => {
+test('opens read-only evidence details from cards and from the table', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(fixtureSnapshot), { status: 200 })))
 
   renderPage()
 
-  await screen.findByText('Dow Jones Industrial Average')
-  fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Market section' }))
-  fireEvent.click(await screen.findByText('INDIA ADRS', { selector: '.ant-select-item-option-content' }))
-  expect(screen.queryByText('Dow Jones Industrial Average')).not.toBeInTheDocument()
-  expect(screen.getByText('Infosys ADR')).toBeInTheDocument()
-
-  fireEvent.click(screen.getByRole('radio', { name: /Cards/ }))
-  fireEvent.click(screen.getByRole('button', { name: 'View evidence' }))
+  fireEvent.click(await screen.findByRole('button', { name: 'View evidence for Infosys ADR' }))
   expect(await screen.findByText('Market evidence: Infosys ADR')).toBeInTheDocument()
   expect(screen.getByText(/Fixture does not include a current value/i)).toBeInTheDocument()
+
+  fireEvent.click(screen.getByRole('radio', { name: /Table/ }))
+  expect(screen.getByRole('table', { name: 'USA market instruments' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: 'View evidence for Dow Jones Industrial Average' }))
+  expect(await screen.findByText('Market evidence: Dow Jones Industrial Average')).toBeInTheDocument()
 })
 
-test('presents daily context and view controls with Ant Design components', async () => {
+test('defaults to cards and presents daily context and view controls', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(fixtureSnapshot), { status: 200 })))
 
   renderPage()
 
   await screen.findByText('Dow Jones Industrial Average')
   expect(screen.getByText('Daily snapshot')).toBeInTheDocument()
-  expect(screen.getByLabelText('Market section').closest('.ant-select')).toBeInTheDocument()
   expect(screen.getByRole('radiogroup', { name: 'Market view' })).toBeInTheDocument()
+  expect(screen.getByRole('radio', { name: /Cards/ })).toBeChecked()
+  expect(screen.queryByRole('table')).not.toBeInTheDocument()
 })

@@ -1,11 +1,19 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
+
+export type ThemeMode = 'light' | 'dark'
 
 interface UiState {
-  navigationCollapsed: boolean
-  toggleNavigation: () => void
+  themeMode: ThemeMode
+  toggleTheme: () => void
 }
 
-export const useUiStore = create<UiState>((set) => ({
-  navigationCollapsed: false,
-  toggleNavigation: () => set((state) => ({ navigationCollapsed: !state.navigationCollapsed })),
-}))
+export const useUiStore = create<UiState>()(
+  persist(
+    (set) => ({
+      themeMode: 'light',
+      toggleTheme: () => set((state) => ({ themeMode: state.themeMode === 'dark' ? 'light' : 'dark' })),
+    }),
+    { name: 'god-market-ui' },
+  ),
+)

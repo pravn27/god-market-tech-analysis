@@ -25,6 +25,8 @@ KEYRING_SERVICE = "god-market-tech-analysis"
 KEYRING_TOKENS_ACCOUNT = "tradingview-official.tokens"
 KEYRING_CLIENT_ACCOUNT = "tradingview-official.client-info"
 TOKEN_REFRESH_LEEWAY_SECONDS = 60
+# Official MCP tool calls routinely take 3-5 s, so httpx's 5 s default read timeout is too short.
+OFFICIAL_MCP_HTTP_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 
 class OAuthStorageError(RuntimeError):
@@ -229,7 +231,9 @@ class OfficialMCPOAuthCoordinator:
         tokens = await self._storage.get_tokens()
         if not tokens:
             raise OAuthStorageError("TradingView OAuth token was not saved.")
-        async with httpx.AsyncClient(headers={"Authorization": f"Bearer {tokens.access_token}"}) as client:
+        async with httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {tokens.access_token}"}, timeout=OFFICIAL_MCP_HTTP_TIMEOUT
+        ) as client:
             async with streamable_http_client(OFFICIAL_MCP_URL, http_client=client) as (read_stream, write_stream, _):
                 async with ClientSession(read_stream, write_stream) as session:
                     await session.initialize()
@@ -295,7 +299,9 @@ class OfficialMCPOAuthCoordinator:
             return await self._call_tool_once(name, arguments, tokens.access_token)
 
     async def _call_tool_once(self, name: str, arguments: dict[str, Any], access_token: str) -> Any:
-        async with httpx.AsyncClient(headers={"Authorization": f"Bearer {access_token}"}) as client:
+        async with httpx.AsyncClient(
+            headers={"Authorization": f"Bearer {access_token}"}, timeout=OFFICIAL_MCP_HTTP_TIMEOUT
+        ) as client:
             async with streamable_http_client(OFFICIAL_MCP_URL, http_client=client) as (read_stream, write_stream, _):
                 async with ClientSession(read_stream, write_stream) as session:
                     await session.initialize()

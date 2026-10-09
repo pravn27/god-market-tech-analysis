@@ -1,6 +1,6 @@
 """FastAPI application for the local, read-only MCP API service."""
 
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 
@@ -10,10 +10,13 @@ from .models import (
     AnalysisTimeframe,
     ChartContext,
     GlobalMarketSnapshot,
+    MtfInstrumentCatalog,
+    MultiTimeframeAnalysis,
     MultiTimeframeCompleteness,
     MultiTimeframeContext,
     ServiceHealth,
 )
+from .mtf_analysis import MultiTimeframeAnalysisService, UnknownInstrumentError
 from .mtf_orchestrator import MultiTimeframeContextOrchestrator
 from .oauth import OfficialMCPOAuthCoordinator
 from .providers import ChartContextProvider, DataSourceUnavailableError, OfficialMCPProvider
@@ -25,10 +28,12 @@ def create_app(
     mtf_orchestrator: Optional[MultiTimeframeContextOrchestrator] = None,
     global_market_provider: Optional[GlobalMarketSnapshotProvider] = None,
     desktop_watchlist_reader: Optional[TradingViewDesktopWatchlistReader] = None,
+    mtf_analysis: Optional[MultiTimeframeAnalysisService] = None,
 ) -> FastAPI:
     oauth_coordinator = oauth or OfficialMCPOAuthCoordinator()
     active_provider = provider or OfficialMCPProvider(tool_caller=oauth_coordinator)
     active_mtf_orchestrator = mtf_orchestrator or MultiTimeframeContextOrchestrator(active_provider)
+    active_mtf_analysis = mtf_analysis or MultiTimeframeAnalysisService(active_mtf_orchestrator)
     active_desktop_watchlist_reader = desktop_watchlist_reader or TradingViewDesktopWatchlistReader.from_environment()
     active_global_market_provider = global_market_provider or GlobalMarketLiveSnapshotProvider(
         active_provider,
@@ -79,6 +84,28 @@ def create_app(
                 },
             )
         return result
+
+    @app.get(
+        "/api/v1/mtf-analysis/instruments",
+        response_model=MtfInstrumentCatalog,
+        tags=["mtf-analysis"],
+    )
+    async def mtf_analysis_instruments() -> MtfInstrumentCatalog:
+        return active_mtf_analysis.catalog
+
+    @app.get(
+        "/api/v1/mtf-analysis/{symbol}",
+        response_model=MultiTimeframeAnalysis,
+        tags=["mtf-analysis"],
+    )
+    async def mtf_analysis(
+        symbol: str,
+        refresh_mode: Literal["prefer_cache", "force_refresh"] = Query("prefer_cache"),
+    ) -> MultiTimeframeAnalysis:
+        try:
+            return await active_mtf_analysis.analyze(symbol, force_refresh=refresh_mode == "force_refresh")
+        except UnknownInstrumentError as error:
+            raise HTTPException(status_code=422, detail=str(error))
 
     @app.get(
         "/api/v1/global-market-sentiment",

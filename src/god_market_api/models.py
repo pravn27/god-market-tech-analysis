@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -11,6 +11,15 @@ class DataSource(str, Enum):
     OFFICIAL_MCP = "official_mcp"
     DESKTOP_BRIDGE = "desktop_bridge"
     FIXTURE = "fixture"
+
+
+class Bias(str, Enum):
+    """Direction implied by one piece of checklist evidence."""
+
+    BULLISH = "bullish"
+    BEARISH = "bearish"
+    NEUTRAL = "neutral"
+    UNAVAILABLE = "unavailable"
 
 
 class SourceState(str, Enum):
@@ -107,6 +116,48 @@ class SourceHealth(BaseModel):
     detail: str
     checked_at: datetime
     last_success_at: Optional[datetime] = None
+
+
+class ChecklistCell(BaseModel):
+    """One worksheet cell: checklist wording, its direction, and the raw evidence."""
+
+    labels: List[str] = Field(default_factory=list)
+    bias: Bias = Bias.NEUTRAL
+    values: Dict[str, Union[float, str, None]] = Field(default_factory=dict)
+    rule_ids: List[str] = Field(default_factory=list)
+    unavailable_reason: Optional[str] = None
+
+
+class ScreenSignal(str, Enum):
+    BUY = "BUY"
+    SELL = "SELL"
+    NOT_CLEAR = "NOT CLEAR"
+    UNAVAILABLE = "UNAVAILABLE"
+
+
+class TimeframeScreen(BaseModel):
+    """Screen-indicator signal for one timeframe (worksheet "Double & Triple Screen" row)."""
+
+    signal: ScreenSignal
+    labels: List[str] = Field(default_factory=list)
+    unavailable_reason: Optional[str] = None
+
+
+class LayerSignal(BaseModel):
+    name: str
+    timeframes: List[AnalysisTimeframe]
+    screen_indicator: str
+    signal: ScreenSignal
+    screens: Dict[AnalysisTimeframe, TimeframeScreen] = Field(default_factory=dict)
+    missing_timeframes: List[AnalysisTimeframe] = Field(default_factory=list)
+
+
+class ScreenDecision(BaseModel):
+    name: str
+    layers: List[str]
+    decision: str
+    position_note: Optional[str] = None
+    missing_timeframes: List[AnalysisTimeframe] = Field(default_factory=list)
 
 
 class Candle(BaseModel):
@@ -215,6 +266,65 @@ class MultiTimeframeContext(BaseModel):
     completeness: MultiTimeframeCompleteness
     contexts: Dict[AnalysisTimeframe, TimeframeContextResult]
     layers: List[MultiTimeframeLayer] = Field(default_factory=lambda: list(default_mtf_layers()))
+    warnings: List[str] = Field(default_factory=list)
+
+
+class MtfInstrument(BaseModel):
+    symbol: str
+    display_name: str
+
+
+class MtfInstrumentSection(BaseModel):
+    name: str
+    instruments: List[MtfInstrument] = Field(default_factory=list)
+
+
+class MtfInstrumentCatalog(BaseModel):
+    """Recorded, read-only snapshot of the TradingView watchlist offered on the page."""
+
+    watchlist_name: str
+    recorded_at: datetime
+    default_symbol: str
+    sections: List[MtfInstrumentSection] = Field(default_factory=list)
+
+
+class MtfTimeframeStatus(BaseModel):
+    timeframe: AnalysisTimeframe
+    source: Optional[DataSource] = None
+    source_timestamp: Optional[datetime] = None
+    freshness_state: SourceState
+    live_candle: bool = False
+    last_close: Optional[float] = None
+    candle_count: int = 0
+    unavailable_reason: Optional[str] = None
+
+
+class MtfChecklistRow(BaseModel):
+    id: str
+    section: str
+    label: str
+    automated: bool
+    cells: Dict[AnalysisTimeframe, ChecklistCell] = Field(default_factory=dict)
+
+
+class MtfDecisions(BaseModel):
+    double_screens: List[ScreenDecision]
+    triple_screen: ScreenDecision
+    disclaimer: str
+
+
+class MultiTimeframeAnalysis(BaseModel):
+    """PAPA + SMM checklist for one instrument across the worksheet's eight columns."""
+
+    symbol: str
+    display_name: str
+    requested_at: datetime
+    profile_version: str
+    completeness: MultiTimeframeCompleteness
+    timeframes: Dict[AnalysisTimeframe, MtfTimeframeStatus]
+    layers: List[LayerSignal]
+    rows: List[MtfChecklistRow]
+    decisions: MtfDecisions
     warnings: List[str] = Field(default_factory=list)
 
 

@@ -37,6 +37,14 @@ test('renders the Global Market route shell', () => {
   expect(screen.getByRole('heading', { name: 'Global Markets' })).toBeInTheDocument()
   expect(screen.getByText(/manual analysis/i)).toBeInTheDocument()
   expect(screen.getByRole('navigation', { name: 'Primary' })).toHaveTextContent('Global Market')
+  expect(screen.getByRole('navigation', { name: 'Primary' })).toHaveTextContent('Multi-Timeframe')
+})
+
+test('navigates to the Multi-Timeframe page from the header', () => {
+  renderApp()
+
+  fireEvent.click(screen.getByRole('button', { name: /Multi-Timeframe/ }))
+  expect(screen.getByRole('heading', { name: 'Multi-Timeframe Analysis' })).toBeInTheDocument()
 })
 
 test('toggles between light and dark themes and remembers the choice', () => {

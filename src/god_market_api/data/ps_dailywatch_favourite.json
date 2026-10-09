@@ -1,0 +1,59 @@
+{
+  "watchlist_name": "PS_DailyWatch_Favourite",
+  "recorded_at": "2026-10-09T10:07:31.738Z",
+  "default_symbol": "NSE:NIFTY",
+  "sections": [
+    {
+      "name": "LONG / MEDIUM TERM INVESTMENT",
+      "symbols": [
+        "NSE:NIFTYBEES",
+        "NSE:GOLDBEES",
+        "NSE:SILVERBEES"
+      ]
+    },
+    {
+      "name": "F & O",
+      "symbols": [
+        "NSE:NIFTY",
+        "NSE:BANKNIFTY",
+        "NSE:INDIAVIX"
+      ]
+    },
+    {
+      "name": "DAILY_WATCHLIST 2024 JAN",
+      "symbols": [
+        "NSE:PNB",
+        "NSE:BANKINDIA",
+        "NSE:IDFCFIRSTB",
+        "NSE:RADICO",
+        "NSE:SOBHA",
+        "NSE:OBEROIRLTY",
+        "NSE:LT",
+        "NSE:HDFCBANK",
+        "NSE:LUPIN",
+        "NSE:RELIANCE",
+        "NSE:LTM",
+        "NSE:DIVISLAB",
+        "NSE:HCG",
+        "NSE:HINDZINC",
+        "NSE:AXISBANK",
+        "NSE:BHARTIARTL",
+        "NSE:TATAPOWER",
+        "NSE:MCX"
+      ]
+    },
+    {
+      "name": "STOCKS WATCHLIST",
+      "symbols": [
+        "NSE:RVNL",
+        "NSE:RAILTEL",
+        "NSE:NTPC",
+        "NSE:PFC",
+        "NSE:GAIL",
+        "NSE:GRSE",
+        "NSE:POWERGRID",
+        "NSE:RECLTD"
+      ]
+    }
+  ]
+}

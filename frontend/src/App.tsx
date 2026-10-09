@@ -1,8 +1,9 @@
-import { BulbFilled, BulbOutlined, GlobalOutlined, LineChartOutlined } from '@ant-design/icons'
+import { BulbFilled, BulbOutlined, GlobalOutlined, LineChartOutlined, NodeIndexOutlined } from '@ant-design/icons'
 import { Button, Layout, Tooltip, Typography } from 'antd'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
 import GlobalMarketPage from './features/global-market/GlobalMarketPage'
+import MultiTimeframePage from './features/multi-timeframe/MultiTimeframePage'
 import { useUiStore } from './state/uiStore'
 
 const { Header, Content, Footer } = Layout
@@ -32,6 +33,13 @@ export default function App() {
           >
             Global Market
           </Button>
+          <Button
+            type={location.pathname === '/multi-timeframe' ? 'primary' : 'text'}
+            icon={<NodeIndexOutlined />}
+            onClick={() => navigate('/multi-timeframe')}
+          >
+            Multi-Timeframe
+          </Button>
         </nav>
         <Tooltip title={themeLabel}>
           <Button
@@ -45,6 +53,7 @@ export default function App() {
       <Content className="app-content">
         <Routes>
           <Route path="/global-market" element={<GlobalMarketPage />} />
+          <Route path="/multi-timeframe" element={<MultiTimeframePage />} />
           <Route path="*" element={<Navigate to="/global-market" replace />} />
         </Routes>
       </Content>

@@ -365,6 +365,7 @@ Confirmed by the user on 2026-10-09:
 | Columns | Eight columns in four layers, as in the worksheet |
 | Candle | Latest candle even if forming, labelled live |
 | Thresholds | Defaults above, configurable in the profile |
+| Bollinger basis | Standard SMA basis kept, even though the user's chart uses an EMA basis (difference 0.04% on validation) |
 
 ## Open questions
 

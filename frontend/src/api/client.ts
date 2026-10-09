@@ -23,6 +23,7 @@ export interface GlobalMarketSnapshot {
   read_at: string
   timeframe: string
   completeness: 'complete' | 'partial' | 'unavailable'
+  desktop_fallback?: 'none' | 'partial' | 'full'
   groups: GlobalMarketGroup[]
   breadth: { advancing: number; declining: number; unchanged: number; unavailable: number }
   warnings: string[]

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from fastapi.testclient import TestClient
 
 from god_market_api.app import create_app
+from god_market_api.desktop_bridge import TradingViewDesktopWatchlistReader
 from god_market_api.models import ChartContext, DataSource, SourceHealth, SourceState
 from god_market_api.providers import OfficialMCPProvider
 
@@ -38,13 +39,18 @@ class ReadyOAuth:
 
 
 def test_health_reports_source_state():
-    client = TestClient(create_app(ReadyProvider()))
+    client = TestClient(
+        create_app(ReadyProvider(), desktop_watchlist_reader=TradingViewDesktopWatchlistReader(None))
+    )
 
     response = client.get("/health")
 
     assert response.status_code == 200
-    assert response.json()["sources"][0]["source"] == "official_mcp"
-    assert response.json()["sources"][0]["state"] == "ready"
+    official, desktop = response.json()["sources"]
+    assert official["source"] == "official_mcp"
+    assert official["state"] == "ready"
+    assert desktop["source"] == "desktop_bridge"
+    assert desktop["state"] == "not_configured"
 
 
 def test_chart_context_preserves_source_and_timeframe():

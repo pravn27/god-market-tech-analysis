@@ -43,6 +43,14 @@ class GlobalMarketCompleteness(str, Enum):
     UNAVAILABLE = "unavailable"
 
 
+class DesktopFallbackState(str, Enum):
+    """How much of a snapshot's available evidence came from the Desktop watchlist."""
+
+    NONE = "none"
+    PARTIAL = "partial"
+    FULL = "full"
+
+
 class MarketDirection(str, Enum):
     """Evidence-only price movement state for one global-market item."""
 
@@ -179,6 +187,7 @@ class GlobalMarketSnapshot(BaseModel):
     read_at: datetime
     timeframe: str
     completeness: GlobalMarketCompleteness
+    desktop_fallback: DesktopFallbackState = DesktopFallbackState.NONE
     groups: List[GlobalMarketGroup] = Field(default_factory=list)
     breadth: GlobalMarketBreadth
     warnings: List[str] = Field(default_factory=list)

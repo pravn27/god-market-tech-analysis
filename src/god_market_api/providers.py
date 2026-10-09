@@ -5,6 +5,7 @@ into ``ChartContext``. It never calculates signals or makes trading decisions.
 """
 
 import json
+from contextlib import AbstractAsyncContextManager, nullcontext
 from datetime import datetime, timezone
 from typing import Any, Mapping, Protocol, Sequence
 
@@ -200,6 +201,15 @@ class OfficialMCPProvider:
             checked_at=datetime.now(timezone.utc),
             last_success_at=self._last_success_at,
         )
+
+    def batch_session(self) -> AbstractAsyncContextManager[bool | None]:
+        """Share one MCP session across many calls when the tool caller supports it.
+
+        The context value is whether the shared session opened, or ``None`` when
+        the tool caller has no shared-session support.
+        """
+        shared_session = getattr(self._tool_caller, "shared_session", None)
+        return shared_session() if shared_session is not None else nullcontext()
 
     async def get_chart_context(self, symbol: str, timeframe: str) -> ChartContext:
         context = await self.get_price_context(symbol, timeframe, candle_count=self._candle_count)

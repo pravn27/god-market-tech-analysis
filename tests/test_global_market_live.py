@@ -1,6 +1,7 @@
 """Tests for the bounded, read-only official-MCP Global Market provider."""
 
 import asyncio
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
@@ -13,7 +14,14 @@ from god_market_api.global_market import (
     WatchlistGroupDefinition,
     WatchlistInstrumentDefinition,
 )
-from god_market_api.models import Candle, ChartContext, DataSource, MarketDirection, SourceState
+from god_market_api.models import (
+    Candle,
+    ChartContext,
+    DataSource,
+    DesktopFallbackState,
+    MarketDirection,
+    SourceState,
+)
 from god_market_api.providers import DataSourceUnavailableError
 
 
@@ -148,6 +156,36 @@ def test_live_provider_retries_a_transient_official_failure_once() -> None:
     assert provider.calls.count(("TVC:VIX", "daily")) == 2
 
 
+def test_live_provider_reads_every_item_inside_one_batch_session() -> None:
+    class BatchingProvider(FixtureProvider):
+        def __init__(self) -> None:
+            super().__init__()
+            self.in_batch = False
+            self.calls_in_batch = 0
+            self.batches = 0
+
+        @asynccontextmanager
+        async def batch_session(self):
+            self.batches += 1
+            self.in_batch = True
+            try:
+                yield
+            finally:
+                self.in_batch = False
+
+        async def get_chart_context(self, symbol: str, timeframe: str) -> ChartContext:
+            self.calls_in_batch += self.in_batch
+            return await super().get_chart_context(symbol, timeframe)
+
+    provider = BatchingProvider()
+    live = GlobalMarketLiveSnapshotProvider(provider, watchlist_groups=WATCHLIST, clock=lambda: NOW)
+
+    asyncio.run(live.get_snapshot("daily"))
+
+    assert provider.batches == 1
+    assert provider.calls_in_batch == 3
+
+
 def test_live_provider_rejects_an_invalid_concurrency_limit() -> None:
     try:
         GlobalMarketLiveSnapshotProvider(FixtureProvider(), watchlist_groups=WATCHLIST, max_provider_concurrency=0)
@@ -200,6 +238,155 @@ def test_live_provider_uses_desktop_watchlist_as_labeled_fallback_for_failed_off
         "unavailable": 0,
     }
     assert desktop.calls == [["TVC:SPX", "TVC:VIX", "NYSE:INFY"]]
+
+
+DESKTOP_QUOTES = {
+    "TVC:SPX": DesktopWatchlistQuote(last_price=105.0, change_percent=0.5),
+    "TVC:VIX": DesktopWatchlistQuote(last_price=18.0, change_percent=-1.0),
+    "NYSE:INFY": DesktopWatchlistQuote(last_price=10.0, change_percent=0.2),
+}
+
+
+class SessionProvider(FixtureProvider):
+    """A provider whose shared official session opens or fails to open."""
+
+    def __init__(self, *, session_opens: bool, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.session_opens = session_opens
+
+    @asynccontextmanager
+    async def batch_session(self):
+        yield self.session_opens
+
+
+class FailingDesktopWatchlistReader(FixtureDesktopWatchlistReader):
+    def __init__(self) -> None:
+        super().__init__({})
+
+    async def get_quotes(self, expected_symbols: list[str]) -> DesktopWatchlistQuoteSnapshot:
+        self.calls.append(expected_symbols)
+        raise DataSourceUnavailableError("The TradingView Desktop watchlist read failed.")
+
+
+def test_snapshot_marks_partial_desktop_fallback() -> None:
+    live = GlobalMarketLiveSnapshotProvider(
+        FixtureProvider(unavailable_symbols={"TVC:SPX"}),
+        desktop_watchlist_reader=FixtureDesktopWatchlistReader(DESKTOP_QUOTES),
+        watchlist_groups=WATCHLIST,
+        clock=lambda: NOW,
+        retry_attempts=0,
+    )
+
+    assert asyncio.run(live.get_snapshot("daily")).desktop_fallback is DesktopFallbackState.PARTIAL
+
+
+def test_slow_desktop_read_is_cancelled_when_official_data_is_complete() -> None:
+    class SlowDesktopReader(FixtureDesktopWatchlistReader):
+        cancelled = False
+
+        async def get_quotes(self, expected_symbols: list[str]) -> DesktopWatchlistQuoteSnapshot:
+            self.calls.append(expected_symbols)
+            try:
+                await asyncio.sleep(5)
+            except asyncio.CancelledError:
+                self.cancelled = True
+                raise
+            return await super().get_quotes(expected_symbols)
+
+    desktop = SlowDesktopReader(DESKTOP_QUOTES)
+    live = GlobalMarketLiveSnapshotProvider(
+        FixtureProvider(), desktop_watchlist_reader=desktop, watchlist_groups=WATCHLIST, clock=lambda: NOW
+    )
+
+    snapshot = asyncio.run(asyncio.wait_for(live.get_snapshot("daily"), 2))
+
+    assert len(desktop.calls) == 1
+    assert desktop.cancelled
+    assert snapshot.desktop_fallback is DesktopFallbackState.NONE
+    assert all(item.source is DataSource.OFFICIAL_MCP for group in snapshot.groups for item in group.instruments)
+
+
+def test_unopenable_official_session_goes_straight_to_desktop() -> None:
+    provider = SessionProvider(session_opens=False)
+    live = GlobalMarketLiveSnapshotProvider(
+        provider,
+        desktop_watchlist_reader=FixtureDesktopWatchlistReader(DESKTOP_QUOTES),
+        watchlist_groups=WATCHLIST,
+        clock=lambda: NOW,
+    )
+
+    snapshot = asyncio.run(live.get_snapshot("daily"))
+
+    assert provider.calls == []
+    assert snapshot.desktop_fallback is DesktopFallbackState.FULL
+    assert snapshot.completeness.value == "complete"
+    assert any("could not be opened" in warning for warning in snapshot.warnings)
+
+
+def test_unopenable_official_session_still_tries_official_when_desktop_is_down() -> None:
+    provider = SessionProvider(session_opens=False)
+    live = GlobalMarketLiveSnapshotProvider(
+        provider,
+        desktop_watchlist_reader=FailingDesktopWatchlistReader(),
+        watchlist_groups=WATCHLIST,
+        clock=lambda: NOW,
+    )
+
+    snapshot = asyncio.run(live.get_snapshot("daily"))
+
+    assert len(provider.calls) == 3
+    assert snapshot.desktop_fallback is DesktopFallbackState.NONE
+    assert snapshot.completeness.value == "complete"
+
+
+def test_consecutive_official_failures_stop_further_official_requests() -> None:
+    groups = (
+        WatchlistGroupDefinition(
+            name="USA",
+            instruments=tuple(WatchlistInstrumentDefinition(f"TVC:X{index}", f"Index {index}") for index in range(6)),
+        ),
+    )
+    provider = FixtureProvider(unavailable_symbols={f"TVC:X{index}" for index in range(6)})
+    desktop = FixtureDesktopWatchlistReader(
+        {f"TVC:X{index}": DesktopWatchlistQuote(last_price=1.0, change_percent=0.1) for index in range(6)}
+    )
+    live = GlobalMarketLiveSnapshotProvider(
+        provider,
+        desktop_watchlist_reader=desktop,
+        watchlist_groups=groups,
+        clock=lambda: NOW,
+        max_provider_concurrency=1,
+        retry_attempts=0,
+    )
+
+    snapshot = asyncio.run(live.get_snapshot("daily"))
+
+    assert len(provider.calls) == 3
+    assert all(item.source is DataSource.DESKTOP_BRIDGE for item in snapshot.groups[0].instruments)
+    assert any("3 consecutive official" in warning for warning in snapshot.warnings)
+
+
+def test_official_time_budget_hands_slow_items_to_desktop() -> None:
+    class SlowProvider(FixtureProvider):
+        async def get_chart_context(self, symbol: str, timeframe: str) -> ChartContext:
+            if symbol == "TVC:VIX":
+                await asyncio.sleep(5)
+            return await super().get_chart_context(symbol, timeframe)
+
+    live = GlobalMarketLiveSnapshotProvider(
+        SlowProvider(),
+        desktop_watchlist_reader=FixtureDesktopWatchlistReader(DESKTOP_QUOTES),
+        watchlist_groups=WATCHLIST,
+        clock=lambda: NOW,
+        official_time_budget_seconds=0.2,
+    )
+
+    snapshot = asyncio.run(live.get_snapshot("daily"))
+
+    spx, vix = snapshot.groups[0].instruments
+    assert spx.source is DataSource.OFFICIAL_MCP
+    assert vix.source is DataSource.DESKTOP_BRIDGE
+    assert any("0.2 s refresh budget" in warning for warning in vix.warnings)
 
 
 def test_desktop_quote_without_daily_change_shows_price_but_stays_out_of_breadth() -> None:

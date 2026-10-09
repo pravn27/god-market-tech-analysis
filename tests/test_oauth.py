@@ -11,6 +11,8 @@ from god_market_api.oauth import (
     KeyringTokenStorage,
     OfficialMCPOAuthCoordinator,
     OAuthStorageError,
+    _shared_mcp_session,
+    _SharedMCPSession,
 )
 
 
@@ -239,6 +241,62 @@ def test_call_tool_retries_once_after_unauthorized_response(monkeypatch):
 
     assert result == {"result": "ok"}
     assert calls == ["access-old", "access-new"]
+
+
+def test_call_tool_uses_shared_session_until_it_fails(monkeypatch):
+    coordinator = OfficialMCPOAuthCoordinator(storage=MemoryTokenStorage(make_tokens(), datetime.now(timezone.utc)))
+    per_call = []
+
+    class FakeSession:
+        def __init__(self):
+            self.calls = 0
+
+        async def call_tool(self, name, arguments):
+            self.calls += 1
+            if self.calls == 2:
+                raise RuntimeError("429 Too Many Requests")
+            return {"via": "shared"}
+
+    async def call_once(name, arguments, access_token):
+        per_call.append(name)
+        return {"via": "per-call"}
+
+    monkeypatch.setattr(coordinator, "_call_tool_once", call_once)
+    session = FakeSession()
+
+    async def run():
+        _shared_mcp_session.set(_SharedMCPSession(session=session))
+        first = await coordinator.call_tool("mcp-tv-get-ohlcv", {})
+        with pytest.raises(RuntimeError):
+            await coordinator.call_tool("mcp-tv-get-ohlcv", {})
+        third = await coordinator.call_tool("mcp-tv-get-ohlcv", {})
+        return first, third
+
+    first, third = asyncio_run(run())
+
+    assert first == {"via": "shared"}
+    assert third == {"via": "per-call"}
+    assert session.calls == 2
+    assert per_call == ["mcp-tv-get-ohlcv"]
+
+
+def test_shared_session_falls_back_to_per_call_sessions_when_it_cannot_open(monkeypatch):
+    coordinator = OfficialMCPOAuthCoordinator(storage=MemoryTokenStorage(make_tokens(), datetime.now(timezone.utc)))
+
+    def unavailable_transport(*args, **kwargs):
+        raise httpx.ConnectError("offline")
+
+    async def call_once(name, arguments, access_token):
+        return {"via": "per-call"}
+
+    monkeypatch.setattr("god_market_api.oauth.streamable_http_client", unavailable_transport)
+    monkeypatch.setattr(coordinator, "_call_tool_once", call_once)
+
+    async def run():
+        async with coordinator.shared_session():
+            return await coordinator.call_tool("mcp-tv-get-ohlcv", {})
+
+    assert asyncio_run(run()) == {"via": "per-call"}
 
 
 def test_parallel_refreshes_reuse_the_rotated_token(monkeypatch):

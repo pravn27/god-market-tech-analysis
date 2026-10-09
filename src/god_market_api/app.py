@@ -42,7 +42,9 @@ def create_app(
 
     @app.get("/health", response_model=ServiceHealth, tags=["health"])
     async def health() -> ServiceHealth:
-        return ServiceHealth(sources=[await active_provider.health()])
+        return ServiceHealth(
+            sources=[await active_provider.health(), await active_desktop_watchlist_reader.health()]
+        )
 
     @app.get(
         "/api/v1/chart-context/{symbol}",

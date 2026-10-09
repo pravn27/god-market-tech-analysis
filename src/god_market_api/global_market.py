@@ -1,6 +1,7 @@
 """Global-market context providers for the local dashboard."""
 
 import asyncio
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Protocol, Sequence
@@ -9,6 +10,7 @@ from .desktop_bridge import DesktopWatchlistQuoteSnapshot, TradingViewDesktopWat
 from .models import (
     ChartContext,
     DataSource,
+    DesktopFallbackState,
     GlobalMarketBreadth,
     GlobalMarketCompleteness,
     GlobalMarketGroup,
@@ -126,6 +128,14 @@ def calculate_breadth(groups: Sequence[GlobalMarketGroup]) -> GlobalMarketBreadt
     )
 
 
+def _desktop_fallback_state(groups: Sequence[GlobalMarketGroup]) -> DesktopFallbackState:
+    priced = [item for group in groups for item in group.instruments if item.last_price is not None]
+    desktop_count = sum(item.source is DataSource.DESKTOP_BRIDGE for item in priced)
+    if desktop_count == 0:
+        return DesktopFallbackState.NONE
+    return DesktopFallbackState.FULL if desktop_count == len(priced) else DesktopFallbackState.PARTIAL
+
+
 class GlobalMarketSnapshotService:
     """Build an ordered, evidence-only dashboard response from a supplied universe."""
 
@@ -166,6 +176,7 @@ class GlobalMarketSnapshotService:
             read_at=self._clock(),
             timeframe=timeframe,
             completeness=completeness,
+            desktop_fallback=_desktop_fallback_state(ordered_groups),
             groups=ordered_groups,
             breadth=breadth,
             warnings=combined_warnings,
@@ -235,6 +246,42 @@ class FixtureGlobalMarketSnapshotProvider:
         )
 
 
+async def _read_desktop_quotes(
+    reader: TradingViewDesktopWatchlistReader, expected_symbols: Sequence[str]
+) -> DesktopWatchlistQuoteSnapshot | DataSourceUnavailableError:
+    try:
+        return await reader.get_quotes(expected_symbols)
+    except DataSourceUnavailableError as error:
+        return error
+
+
+@dataclass
+class _OfficialAttempts:
+    """Per-refresh limits that hand remaining items to the Desktop fallback quickly."""
+
+    deadline: float
+    failure_limit: int
+    consecutive_failures: int = 0
+    stopped_reason: str | None = None
+
+    def remaining(self) -> float:
+        return self.deadline - asyncio.get_running_loop().time()
+
+    def stop(self, reason: str) -> None:
+        if self.stopped_reason is None:
+            self.stopped_reason = reason
+
+    def record_success(self) -> None:
+        self.consecutive_failures = 0
+
+    def record_failure(self) -> None:
+        self.consecutive_failures += 1
+        if self.consecutive_failures >= self.failure_limit:
+            self.stop(
+                f"Skipped after {self.failure_limit} consecutive official TradingView MCP failures in this refresh."
+            )
+
+
 class GlobalMarketLiveSnapshotProvider:
     """Read official-MCP OHLCV for the approved watchlist without trading actions."""
 
@@ -249,13 +296,19 @@ class GlobalMarketLiveSnapshotProvider:
         cache_for: timedelta = timedelta(seconds=60),
         retry_attempts: int = 1,
         retry_delay_seconds: float = 1.0,
+        official_time_budget_seconds: float = 20.0,
+        official_failure_limit: int = 3,
     ) -> None:
         if max_provider_concurrency < 1:
             raise ValueError("max_provider_concurrency must be at least 1.")
         if retry_attempts < 0 or retry_delay_seconds < 0:
             raise ValueError("retry_attempts and retry_delay_seconds must not be negative.")
+        if official_time_budget_seconds <= 0 or official_failure_limit < 1:
+            raise ValueError("official_time_budget_seconds and official_failure_limit must be positive.")
         self._retry_attempts = retry_attempts
         self._retry_delay_seconds = retry_delay_seconds
+        self._official_time_budget_seconds = official_time_budget_seconds
+        self._official_failure_limit = official_failure_limit
         if cache_for < timedelta(0):
             raise ValueError("cache_for must not be negative.")
         self._provider = provider
@@ -277,40 +330,66 @@ class GlobalMarketLiveSnapshotProvider:
             cached = self._cached_snapshot(timeframe)
             if cached is not None:
                 return cached
-            groups = await asyncio.gather(
-                *(self._read_group(group, timeframe) for group in self._watchlist_groups)
+            expected_symbols = [item.symbol for group in self._watchlist_groups for item in group.instruments]
+            desktop_task = (
+                asyncio.create_task(_read_desktop_quotes(self._desktop_watchlist_reader, expected_symbols))
+                if self._desktop_watchlist_reader is not None
+                else None
             )
+            attempts = _OfficialAttempts(
+                deadline=asyncio.get_running_loop().time() + self._official_time_budget_seconds,
+                failure_limit=self._official_failure_limit,
+            )
+            batch_session = getattr(self._provider, "batch_session", None)
+            async with batch_session() if batch_session is not None else nullcontext() as official_ready:
+                if official_ready is False and desktop_task is not None:
+                    if isinstance(await desktop_task, DesktopWatchlistQuoteSnapshot):
+                        attempts.stop("Official TradingView MCP session could not be opened for this refresh.")
+                groups = await asyncio.gather(
+                    *(self._read_group(group, timeframe, attempts) for group in self._watchlist_groups)
+                )
             warnings = [
                 "Official TradingView MCP is the primary source for available price evidence.",
                 "Watchlist groups use the read-only PS_Global_Indices snapshot recorded on 2026-10-07.",
             ]
+            if attempts.stopped_reason:
+                warnings.append(f"Official TradingView MCP requests stopped early: {attempts.stopped_reason}")
             unavailable_count = sum(
                 item.direction is MarketDirection.UNAVAILABLE
                 for group in groups
                 for item in group.instruments
             )
-            if unavailable_count and self._desktop_watchlist_reader is not None:
-                expected_symbols = [
-                    item.symbol
-                    for group in self._watchlist_groups
-                    for item in group.instruments
-                ]
-                try:
-                    desktop_snapshot = await self._desktop_watchlist_reader.get_quotes(expected_symbols)
-                except DataSourceUnavailableError as error:
-                    warnings.append(f"Desktop fallback was unavailable: {error}")
+            desktop_result = None
+            if desktop_task is not None:
+                if unavailable_count:
+                    desktop_result = await desktop_task
                 else:
-                    groups = self._apply_desktop_watchlist_quotes(groups, desktop_snapshot)
-                    fallback_count = sum(
-                        item.source is DataSource.DESKTOP_BRIDGE
-                        for group in groups
-                        for item in group.instruments
+                    desktop_task.cancel()
+                    await asyncio.gather(desktop_task, return_exceptions=True)
+            if unavailable_count and isinstance(desktop_result, DataSourceUnavailableError):
+                warnings.append(f"Desktop fallback was unavailable: {desktop_result}")
+            elif unavailable_count and isinstance(desktop_result, DesktopWatchlistQuoteSnapshot):
+                groups = self._apply_desktop_watchlist_quotes(groups, desktop_result)
+                fallback_count = sum(
+                    item.source is DataSource.DESKTOP_BRIDGE
+                    for group in groups
+                    for item in group.instruments
+                )
+                if fallback_count:
+                    warnings.append(
+                        f"Desktop watchlist quotes supplied fallback evidence for {fallback_count} item(s); "
+                        "the source timestamp is the local read time."
                     )
-                    if fallback_count:
-                        warnings.append(
-                            f"Desktop watchlist quotes supplied fallback evidence for {fallback_count} item(s); "
-                            "the source timestamp is the local read time."
-                        )
+                missing_rows = sum(
+                    item.direction is MarketDirection.UNAVAILABLE and item.source is not DataSource.DESKTOP_BRIDGE
+                    for group in groups
+                    for item in group.instruments
+                )
+                if missing_rows:
+                    warnings.append(
+                        f"{missing_rows} unavailable item(s) had no visible row in the Desktop watchlist; "
+                        "scroll or resize the watchlist panel so every row is visible."
+                    )
             snapshot = self._service.build_snapshot(
                 timeframe=timeframe,
                 groups=groups,
@@ -320,29 +399,44 @@ class GlobalMarketLiveSnapshotProvider:
             return snapshot
 
     async def _read_group(
-        self, definition: WatchlistGroupDefinition, timeframe: str
+        self, definition: WatchlistGroupDefinition, timeframe: str, attempts: "_OfficialAttempts"
     ) -> GlobalMarketGroup:
         instruments = await asyncio.gather(
-            *(self._read_instrument(item, timeframe) for item in definition.instruments)
+            *(self._read_instrument(item, timeframe, attempts) for item in definition.instruments)
         )
         return GlobalMarketGroup(name=definition.name, instruments=list(instruments))
 
     async def _read_instrument(
-        self, definition: WatchlistInstrumentDefinition, timeframe: str
+        self, definition: WatchlistInstrumentDefinition, timeframe: str, attempts: "_OfficialAttempts"
     ) -> GlobalMarketInstrument:
+        budget_reason = (
+            f"Official TradingView MCP did not respond within the {self._official_time_budget_seconds:g} s "
+            "refresh budget."
+        )
         for attempt in range(self._retry_attempts + 1):
+            if attempts.stopped_reason:
+                return self._unavailable(definition, attempts.stopped_reason)
+            remaining = attempts.remaining()
+            if remaining <= 0:
+                attempts.stop(budget_reason)
+                return self._unavailable(definition, budget_reason)
             try:
-                context = await self._fetch_price_context(definition.symbol, timeframe)
+                context = await asyncio.wait_for(self._fetch_price_context(definition.symbol, timeframe), remaining)
                 break
+            except TimeoutError:
+                attempts.stop(budget_reason)
+                return self._unavailable(definition, budget_reason)
             except Exception as error:
                 if attempt < self._retry_attempts:
-                    await asyncio.sleep(self._retry_delay_seconds)
+                    await asyncio.sleep(min(self._retry_delay_seconds, max(attempts.remaining(), 0)))
                     continue
+                attempts.record_failure()
                 if isinstance(error, DataSourceUnavailableError):
                     return self._unavailable(definition, str(error))
                 return self._unavailable(
                     definition, "Official TradingView MCP could not provide current price evidence for this item."
                 )
+        attempts.record_success()
 
         candles = sorted(context.candles, key=lambda candle: candle.timestamp)
         if len(candles) < 2:

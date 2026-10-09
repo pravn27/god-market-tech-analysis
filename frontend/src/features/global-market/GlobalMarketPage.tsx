@@ -26,6 +26,9 @@ export default function GlobalMarketPage() {
   const { data, error, isFetching, isPending, refetch } = useGlobalMarket('daily')
   const [view, setView] = useState<'cards' | 'table'>('cards')
   const [selectedInstrument, setSelectedInstrument] = useState<GlobalMarketInstrument | null>(null)
+  const desktopAssistedCount = data?.groups
+    .flatMap((group) => group.instruments)
+    .filter((instrument) => instrument.source === 'desktop_bridge').length ?? 0
 
   return (
     <section aria-labelledby="global-market-heading" className="market-dashboard">
@@ -82,6 +85,22 @@ export default function GlobalMarketPage() {
               </Typography.Text>
               <Tag color={completenessColor[data.completeness]}>{data.completeness.toUpperCase()}</Tag>
             </div>
+            {data.desktop_fallback === 'full' && (
+              <Alert
+                type="warning"
+                showIcon
+                title="Official TradingView MCP is unavailable · showing TradingView Desktop watchlist quotes"
+                description="Desktop quotes carry the local read time, not an exchange timestamp. Official data returns automatically on the next refresh once the MCP recovers."
+              />
+            )}
+            {data.desktop_fallback === 'partial' && (
+              <Alert
+                type="info"
+                showIcon
+                title={`TradingView Desktop watchlist filled ${desktopAssistedCount} item${desktopAssistedCount === 1 ? '' : 's'} the official MCP could not supply`}
+                description="Those cards are tagged DESKTOP ASSISTED; open one for the official failure reason."
+              />
+            )}
             {data.warnings.length > 0 && (
               <Alert
                 type="warning"

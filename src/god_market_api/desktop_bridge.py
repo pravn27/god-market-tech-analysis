@@ -10,10 +10,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping, Sequence
 
+from .models import DataSource, SourceHealth, SourceState
 from .providers import DataSourceUnavailableError
 
 # TradingView renders negative quotes with U+2212 rather than an ASCII hyphen.
 _MINUS_SIGNS = str.maketrans({sign: "-" for sign in "\u2212\u2012\u2013\u2014\ufe63\uff0d"})
+
+DESKTOP_START_HINT = (
+    "Start TradingView Desktop with remote debugging (scripts/start-local.sh) and select PS_Global_Indices."
+)
 
 
 @dataclass(frozen=True)
@@ -31,9 +36,10 @@ class DesktopWatchlistQuoteSnapshot:
 class TradingViewDesktopWatchlistReader:
     """Read visible active-watchlist quote rows through the local bridge CLI.
 
-    The active watchlist is accepted only when its ordered symbols exactly match
-    the approved Global Market universe. The bridge does not expose a reliable
-    watchlist name or exchange timestamp in its quote response.
+    Only rows whose symbols belong to the approved Global Market universe are
+    used, and the read is rejected when most visible rows are other symbols. The
+    bridge does not expose a reliable watchlist name or exchange timestamp in its
+    quote response.
     """
 
     def __init__(
@@ -46,6 +52,8 @@ class TradingViewDesktopWatchlistReader:
         self._cli_path = Path(cli_path).expanduser() if cli_path else None
         self._node_executable = node_executable
         self._timeout_seconds = timeout_seconds
+        self._last_success_at: datetime | None = None
+        self._last_error: str | None = None
 
     @classmethod
     def from_environment(cls) -> "TradingViewDesktopWatchlistReader":
@@ -54,7 +62,34 @@ class TradingViewDesktopWatchlistReader:
             node_executable=os.environ.get("TRADINGVIEW_DESKTOP_BRIDGE_NODE") or "node",
         )
 
+    async def health(self) -> SourceHealth:
+        if self._cli_path is None:
+            state, detail = SourceState.NOT_CONFIGURED, "Set TRADINGVIEW_DESKTOP_BRIDGE_CLI to enable the Desktop fallback."
+        elif self._last_error is not None:
+            state, detail = SourceState.UNAVAILABLE, self._last_error
+        elif self._last_success_at is None:
+            state, detail = SourceState.NOT_CONFIGURED, "The Desktop watchlist has not been read yet."
+        else:
+            state, detail = SourceState.READY, "The Desktop watchlist fallback is ready."
+        return SourceHealth(
+            source=DataSource.DESKTOP_BRIDGE,
+            state=state,
+            detail=detail,
+            checked_at=datetime.now(timezone.utc),
+            last_success_at=self._last_success_at,
+        )
+
     async def get_quotes(self, expected_symbols: Sequence[str]) -> DesktopWatchlistQuoteSnapshot:
+        try:
+            snapshot = await self._read_quotes(expected_symbols)
+        except DataSourceUnavailableError as error:
+            self._last_error = str(error)
+            raise
+        self._last_error = None
+        self._last_success_at = snapshot.observed_at
+        return snapshot
+
+    async def _read_quotes(self, expected_symbols: Sequence[str]) -> DesktopWatchlistQuoteSnapshot:
         if self._cli_path is None:
             raise DataSourceUnavailableError(
                 "The Desktop watchlist fallback is not configured. Set TRADINGVIEW_DESKTOP_BRIDGE_CLI."
@@ -73,11 +108,22 @@ class TradingViewDesktopWatchlistReader:
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
+        except OSError as error:
+            raise DataSourceUnavailableError("The TradingView Desktop watchlist read could not be started.") from error
+        try:
             stdout, _ = await asyncio.wait_for(process.communicate(), timeout=self._timeout_seconds)
-        except (OSError, asyncio.TimeoutError) as error:
-            raise DataSourceUnavailableError("The TradingView Desktop watchlist read could not be completed.") from error
+        except asyncio.TimeoutError as error:
+            process.kill()
+            await process.wait()
+            raise DataSourceUnavailableError(
+                f"The TradingView Desktop watchlist read timed out. {DESKTOP_START_HINT}"
+            ) from error
+        except asyncio.CancelledError:
+            process.kill()
+            await process.wait()
+            raise
         if process.returncode != 0:
-            raise DataSourceUnavailableError("The TradingView Desktop watchlist read failed.")
+            raise DataSourceUnavailableError(f"The TradingView Desktop watchlist read failed. {DESKTOP_START_HINT}")
         try:
             payload = json.loads(stdout.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -97,18 +143,22 @@ def parse_watchlist_payload(
     raw_symbols = payload.get("symbols")
     if not isinstance(raw_symbols, list) or any(not isinstance(item, dict) for item in raw_symbols):
         raise DataSourceUnavailableError("The Desktop bridge returned no valid watchlist symbols.")
-    symbols = [str(item.get("symbol", "")).strip().upper() for item in raw_symbols]
-    if symbols != [symbol.upper() for symbol in expected_symbols]:
+    approved = {symbol.upper() for symbol in expected_symbols}
+    rows = {str(item.get("symbol", "")).strip().upper(): item for item in raw_symbols}
+    rows.pop("", None)
+    matched = {symbol: item for symbol, item in rows.items() if symbol in approved}
+    # A majority of foreign rows means another watchlist is selected; never borrow its quotes.
+    if not matched or len(matched) * 2 <= len(rows):
         raise DataSourceUnavailableError(
-            "The visible Desktop watchlist does not match the approved PS_Global_Indices symbols and order."
+            "The visible Desktop watchlist is not PS_Global_Indices; select it in TradingView Desktop."
         )
 
     quotes = {
-        str(item["symbol"]).strip().upper(): DesktopWatchlistQuote(
+        symbol: DesktopWatchlistQuote(
             last_price=_parse_number(item.get("last")),
             change_percent=_parse_number(item.get("change_percent"), percent=True),
         )
-        for item in raw_symbols
+        for symbol, item in matched.items()
     }
     return DesktopWatchlistQuoteSnapshot(
         quotes=quotes,

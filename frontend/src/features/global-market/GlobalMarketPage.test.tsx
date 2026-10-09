@@ -154,8 +154,41 @@ test('labels Desktop-assisted fallback values in table and card views', async ()
   renderPage()
 
   expect(await screen.findAllByText('DESKTOP ASSISTED')).toHaveLength(2)
+  expect(screen.queryByText(/Official TradingView MCP is unavailable/)).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('radio', { name: /Table/ }))
   expect(screen.getAllByText('DESKTOP ASSISTED')).toHaveLength(2)
+})
+
+test('shows a banner when Desktop quotes replace or supplement official data', async () => {
+  const desktop = (instrument: (typeof fixtureSnapshot.groups)[number]['instruments'][number]) => ({
+    ...instrument,
+    source: 'desktop_bridge' as const,
+  })
+  const fullFallback = {
+    ...fixtureSnapshot,
+    desktop_fallback: 'full',
+    groups: fixtureSnapshot.groups.map((group) => ({ ...group, instruments: group.instruments.map(desktop) })),
+  }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(fullFallback), { status: 200 })))
+
+  const { unmount } = renderPage()
+
+  expect(await screen.findByText(/Official TradingView MCP is unavailable/)).toBeInTheDocument()
+  unmount()
+
+  const partialFallback = {
+    ...fixtureSnapshot,
+    desktop_fallback: 'partial',
+    groups: [
+      { ...fixtureSnapshot.groups[0], instruments: fixtureSnapshot.groups[0].instruments.map(desktop) },
+      fixtureSnapshot.groups[1],
+    ],
+  }
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(partialFallback), { status: 200 })))
+
+  renderPage()
+
+  expect(await screen.findByText('TradingView Desktop watchlist filled 1 item the official MCP could not supply')).toBeInTheDocument()
 })
 
 test('opens read-only evidence details from cards and from the table', async () => {

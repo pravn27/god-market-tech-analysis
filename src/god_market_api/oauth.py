@@ -4,10 +4,13 @@ import asyncio
 import base64
 import hashlib
 import json
+import logging
 import secrets
+from contextlib import AsyncExitStack, asynccontextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 from urllib.parse import urlencode
 
 import httpx
@@ -27,6 +30,9 @@ KEYRING_CLIENT_ACCOUNT = "tradingview-official.client-info"
 TOKEN_REFRESH_LEEWAY_SECONDS = 60
 # Official MCP tool calls routinely take 3-5 s, so httpx's 5 s default read timeout is too short.
 OFFICIAL_MCP_HTTP_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+OFFICIAL_MCP_READ_TIMEOUT = timedelta(seconds=30)
+
+logger = logging.getLogger(__name__)
 
 
 class OAuthStorageError(RuntimeError):
@@ -101,6 +107,15 @@ class AuthorizationState:
     tools: Optional[list] = None
     oauth_state: Optional[str] = None
     code_verifier: Optional[str] = None
+
+
+@dataclass
+class _SharedMCPSession:
+    session: ClientSession
+    healthy: bool = True
+
+
+_shared_mcp_session: ContextVar[Optional[_SharedMCPSession]] = ContextVar("shared_mcp_session", default=None)
 
 
 class OfficialMCPOAuthCoordinator:
@@ -287,6 +302,15 @@ class OfficialMCPOAuthCoordinator:
             self._state.status = "reconnect_required"
             raise OAuthStorageError("Official MCP authorization is required before requesting market data.")
 
+        shared = _shared_mcp_session.get()
+        if shared is not None and shared.healthy:
+            try:
+                return await shared.session.call_tool(name, arguments)
+            except Exception:
+                # Stop routing through a failed shared session; retries open their own sessions.
+                shared.healthy = False
+                raise
+
         if await self._tokens_need_refresh(tokens):
             tokens = await self._refresh_tokens(expected_access_token=tokens.access_token)
 
@@ -297,6 +321,62 @@ class OfficialMCPOAuthCoordinator:
                 raise
             tokens = await self._refresh_tokens(expected_access_token=tokens.access_token)
             return await self._call_tool_once(name, arguments, tokens.access_token)
+
+    @asynccontextmanager
+    async def shared_session(self) -> AsyncIterator[bool]:
+        """Route call_tool through one MCP session for the duration of a batch.
+
+        Opening a session per call costs several HTTP requests each and trips
+        TradingView's 429 rate limit for a full watchlist refresh. Yields whether
+        the shared session opened; if not, calls fall back to per-call sessions.
+        """
+        current = _shared_mcp_session.get()
+        if current is not None:
+            yield current.healthy
+            return
+        stack = AsyncExitStack()
+        shared: Optional[_SharedMCPSession] = None
+        try:
+            tokens = await self._storage.get_tokens()
+            if tokens:
+                if await self._tokens_need_refresh(tokens):
+                    tokens = await self._refresh_tokens(expected_access_token=tokens.access_token)
+                client = await stack.enter_async_context(
+                    httpx.AsyncClient(
+                        headers={"Authorization": f"Bearer {tokens.access_token}"}, timeout=OFFICIAL_MCP_HTTP_TIMEOUT
+                    )
+                )
+                read_stream, write_stream, _ = await stack.enter_async_context(
+                    streamable_http_client(OFFICIAL_MCP_URL, http_client=client)
+                )
+                session = await stack.enter_async_context(
+                    ClientSession(read_stream, write_stream, read_timeout_seconds=OFFICIAL_MCP_READ_TIMEOUT)
+                )
+                await session.initialize()
+                shared = _SharedMCPSession(session=session)
+                if not self._state.tools:
+                    self._state.tools = [tool.name for tool in (await session.list_tools()).tools]
+        except Exception:
+            logger.warning("Shared official MCP session could not be opened; using per-call sessions.")
+            await self._close_quietly(stack)
+            stack = AsyncExitStack()
+            shared = None
+
+        token = _shared_mcp_session.set(shared)
+        try:
+            yield shared is not None
+        finally:
+            _shared_mcp_session.reset(token)
+            await self._close_quietly(stack)
+
+    @staticmethod
+    async def _close_quietly(stack: AsyncExitStack) -> None:
+        try:
+            await stack.aclose()
+        except BaseException as error:  # noqa: BLE001 - teardown of a dead session must not fail the batch
+            if isinstance(error, asyncio.CancelledError):
+                raise
+            logger.debug("Ignoring error while closing the shared official MCP session.", exc_info=True)
 
     async def _call_tool_once(self, name: str, arguments: dict[str, Any], access_token: str) -> Any:
         async with httpx.AsyncClient(

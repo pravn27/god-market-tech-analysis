@@ -205,9 +205,36 @@ def test_stale_timeframe_that_cannot_refresh_is_unavailable() -> None:
     assert result.decisions.triple_screen.decision == "INCOMPLETE — 1h unavailable"
 
 
-def test_live_candle_detection() -> None:
-    now = datetime(2026, 10, 9, 10, 20, tzinfo=timezone.utc)
-    assert is_live_candle(TF.FIFTEEN_MINUTE, datetime(2026, 10, 9, 10, 15, tzinfo=timezone.utc), now)
-    assert not is_live_candle(TF.FIFTEEN_MINUTE, datetime(2026, 10, 9, 10, 0, tzinfo=timezone.utc), now)
-    assert is_live_candle(TF.MONTHLY, datetime(2026, 10, 1, tzinfo=timezone.utc), now)
-    assert not is_live_candle(TF.MONTHLY, datetime(2026, 9, 1, tzinfo=timezone.utc), now)
+def utc(day: int, hour: int, minute: int = 0, month: int = 10) -> datetime:
+    return datetime(2026, month, day, hour, minute, tzinfo=timezone.utc)
+
+
+def test_live_candle_during_the_session() -> None:
+    now = utc(9, 5, 20)  # Friday 10:50 IST
+    assert is_live_candle(TF.FIFTEEN_MINUTE, utc(9, 5, 15), now)
+    assert not is_live_candle(TF.FIFTEEN_MINUTE, utc(9, 5, 0), now)
+    assert is_live_candle(TF.ONE_HOUR, utc(9, 4, 45), now)
+    assert is_live_candle(TF.DAILY, utc(9, 3, 45), now)
+    assert is_live_candle(TF.WEEKLY, utc(5, 3, 45), now)
+    assert is_live_candle(TF.MONTHLY, utc(1, 3, 45), now)
+
+
+def test_candles_are_final_after_their_last_session_closes() -> None:
+    friday_after_close = utc(9, 10, 20)  # Friday 15:50 IST
+    assert not is_live_candle(TF.FIFTEEN_MINUTE, utc(9, 9, 45), friday_after_close)
+    assert not is_live_candle(TF.ONE_HOUR, utc(9, 9, 45), friday_after_close)
+    assert not is_live_candle(TF.DAILY, utc(9, 3, 45), friday_after_close)
+    assert not is_live_candle(TF.WEEKLY, utc(5, 3, 45), friday_after_close)
+    assert is_live_candle(TF.MONTHLY, utc(1, 3, 45), friday_after_close)
+
+    wednesday_evening = utc(7, 14, 0)
+    assert not is_live_candle(TF.DAILY, utc(7, 3, 45), wednesday_evening)
+    assert is_live_candle(TF.WEEKLY, utc(5, 3, 45), wednesday_evening)
+
+
+def test_monthly_candle_ends_on_the_last_weekday_of_the_month() -> None:
+    # 31 Oct 2026 is a Saturday, so October's last session is Friday 30 Oct.
+    october = utc(1, 3, 45)
+    assert is_live_candle(TF.MONTHLY, october, utc(30, 9, 0))
+    assert not is_live_candle(TF.MONTHLY, october, utc(30, 10, 5))
+    assert not is_live_candle(TF.MONTHLY, utc(1, 3, 45, month=9), utc(9, 5, 0))

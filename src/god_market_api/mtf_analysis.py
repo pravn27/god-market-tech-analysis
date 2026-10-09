@@ -1,7 +1,7 @@
 """Use case: PAPA + SMM multi-timeframe checklist for one watchlist instrument."""
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
 from typing import Callable, Dict, Optional
 
@@ -35,9 +35,10 @@ DISPLAY_NAMES = {
 
 STALE_REASON = "Cached data is stale and could not be refreshed."
 
+IST = timezone(timedelta(hours=5, minutes=30))
+NSE_SESSION_CLOSE = time(15, 30)
+
 _PERIODS = {
-    AnalysisTimeframe.WEEKLY: timedelta(weeks=1),
-    AnalysisTimeframe.DAILY: timedelta(days=1),
     AnalysisTimeframe.FOUR_HOUR: timedelta(hours=4),
     AnalysisTimeframe.ONE_HOUR: timedelta(hours=1),
     AnalysisTimeframe.FIFTEEN_MINUTE: timedelta(minutes=15),
@@ -72,13 +73,29 @@ def load_instrument_catalog(path: Path = SNAPSHOT_PATH) -> MtfInstrumentCatalog:
     )
 
 
-def is_live_candle(timeframe: AnalysisTimeframe, opened_at: datetime, now: datetime) -> bool:
-    """Whether the latest candle's period has not ended yet (it may still be forming)."""
+def _session_close(day: date) -> datetime:
+    return datetime.combine(day, NSE_SESSION_CLOSE, IST)
+
+
+def candle_closes_at(timeframe: AnalysisTimeframe, opened_at: datetime) -> datetime:
+    """When the candle's last NSE session ends. NSE holidays are not modelled."""
+    opened = opened_at.astimezone(IST)
     if timeframe is AnalysisTimeframe.MONTHLY:
-        opened = opened_at.astimezone(timezone.utc)
-        current = now.astimezone(timezone.utc)
-        return (opened.year, opened.month) == (current.year, current.month)
-    return now < opened_at + _PERIODS[timeframe]
+        next_month = (opened.replace(day=28) + timedelta(days=4)).replace(day=1).date()
+        last_day = next_month - timedelta(days=1)
+        while last_day.weekday() > 4:
+            last_day -= timedelta(days=1)
+        return _session_close(last_day)
+    if timeframe is AnalysisTimeframe.WEEKLY:
+        return _session_close(opened.date() + timedelta(days=4 - opened.weekday()))
+    if timeframe is AnalysisTimeframe.DAILY:
+        return _session_close(opened.date())
+    return min(opened_at + _PERIODS[timeframe], _session_close(opened.date()))
+
+
+def is_live_candle(timeframe: AnalysisTimeframe, opened_at: datetime, now: datetime) -> bool:
+    """Whether the latest candle can still change, i.e. its last NSE session has not closed."""
+    return now < candle_closes_at(timeframe, opened_at)
 
 
 class MultiTimeframeAnalysisService:

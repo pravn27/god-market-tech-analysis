@@ -102,6 +102,14 @@ export default function MultiTimeframePage() {
               </Typography.Text>
               <Tag color={completenessColor[data.completeness]}>{data.completeness.toUpperCase()}</Tag>
             </div>
+            {data.symbol === 'NSE:INDIAVIX' && (
+              <Alert
+                type="info"
+                showIcon
+                title="India VIX is a volatility index"
+                description="The checklist is calculated the same way, but green and red show the direction of volatility, not of the market. Rising VIX usually accompanies falling prices."
+              />
+            )}
             {data.warnings.length > 0 && (
               <Alert
                 type="warning"

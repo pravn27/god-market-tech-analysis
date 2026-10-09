@@ -143,6 +143,18 @@ test('uses the symbol from the URL when it is in the watchlist snapshot', async 
   expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining('NSE%3ANIFTY'), expect.anything())
 })
 
+test('explains that India VIX colours describe volatility, not market direction', async () => {
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input)
+    const vixCatalog = { ...catalog, sections: [{ name: 'F & O', instruments: [{ symbol: 'NSE:INDIAVIX', display_name: 'India VIX' }] }] }
+    if (url.includes('/mtf-analysis/instruments')) return new Response(JSON.stringify(vixCatalog), { status: 200 })
+    return new Response(JSON.stringify(analysisFor('NSE:INDIAVIX', 'India VIX')), { status: 200 })
+  }))
+  renderPage('/multi-timeframe?symbol=NSE:INDIAVIX')
+
+  expect(await screen.findByText('India VIX is a volatility index')).toBeInTheDocument()
+})
+
 test('falls back to the default instrument for a symbol outside the snapshot', async () => {
   mockApi()
   renderPage('/multi-timeframe?symbol=NSE:TCS')

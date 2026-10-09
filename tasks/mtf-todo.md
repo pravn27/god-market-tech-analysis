@@ -53,9 +53,9 @@ Plan: [mtf-plan.md](mtf-plan.md) · Spec: [mtf-analysis-checklist.md](../docs/sp
 
 ## Checkpoint C: page review
 
-- [ ] User approves the page.
+- [x] User approves the page (2026-10-09); live-candle badge switched to NSE session hours.
 
 ## Task 7: Live read-only validation
 
-- [ ] Nifty 50 Daily and 1H values compared with TradingView and recorded.
-- [ ] Roadmap updated.
+- [x] Daily values compared with the TradingView chart and recorded in the spec (chart was on NSE:RELIANCE Daily; RSI, MACD, Stochastic, DMI/ADX match; Bollinger within 0.04% because the chart uses an EMA basis). 1H not compared: the chart timeframe may not be changed.
+- [x] Roadmap updated.

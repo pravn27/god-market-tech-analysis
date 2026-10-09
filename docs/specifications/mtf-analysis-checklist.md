@@ -67,7 +67,7 @@ Eight timeframe columns in four layers, exactly as the worksheet. A timeframe th
 
 ## Calculation profile `mtf-checklist-v1`
 
-All values are calculated locally from the normalized candles of each timeframe. The **latest candle is used even if still forming**; the response labels it `live_candle: true`.
+All values are calculated locally from the normalized candles of each timeframe. The **latest candle is used even if still forming**; the response labels it `live_candle: true` until the candle's last NSE session closes (15:30 IST): the same day for Daily, Friday for Weekly, the last weekday of the month for Monthly, and the earlier of the period end or 15:30 for intraday candles. NSE holidays are not modelled.
 
 | Indicator | Settings |
 | --- | --- |
@@ -322,6 +322,20 @@ frontend/src/features/multi-timeframe/       page, matrix, drawer, hooks, tests
 - API tests with fixture providers only; no network.
 - Frontend component tests for matrix rendering, manual rows, unavailable timeframe, drawer content, and navigation.
 - Live read-only check: Nifty 50 Daily and 1H indicator values compared with the TradingView chart (tolerance: EMA/BB 0.1%, RSI/ADX/Stochastic ±1 point).
+
+### Live validation (2026-10-09, read-only)
+
+The active TradingView chart was `NSE:RELIANCE` Daily, so that chart was used instead of Nifty 50 (changing the chart symbol or timeframe is not allowed). Values were read from the chart's own studies; the official technicals endpoint returned HTTP 429 at the time.
+
+| Indicator (chart settings) | TradingView | Calculated | Result |
+| --- | --- | --- | --- |
+| RSI 14 | 35.416 | 35.42 | Match |
+| MACD 12/26/9 (line / signal / histogram) | −26.7999 / −25.1277 / −1.6723 | −26.7999 / −25.1277 / −1.6723 | Match |
+| Stochastic 14/3/3 (%K / %D) | 26.750 / 38.628 | 26.75 / 38.63 | Match |
+| DMI 14/14 (+DI / −DI / ADX) | 13.624 / 37.759 / 39.886 | 13.62 / 37.76 / 39.89 | Match |
+| Bollinger 20/2 (upper / basis / lower) | 1278.35 / 1217.14 / 1155.93 | 1278.85 / 1217.64 / 1156.43 | Within 0.1% (0.04%) |
+
+The Bollinger difference comes only from the basis: the user's chart uses an **EMA** basis, the profile uses the standard SMA basis; the band width (122.42) is identical. EMAs are validated indirectly through MACD. 1H was not compared because the chart timeframe could not be changed; the same functions and data source are used for every timeframe.
 
 ## Boundaries
 

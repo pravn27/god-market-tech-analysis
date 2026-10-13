@@ -25,20 +25,20 @@ from .mtf_checklist import CHECKLIST_ROWS, ChecklistThresholds, TimeframeEvaluat
 from .mtf_orchestrator import MultiTimeframeContextOrchestrator
 from .mtf_screens import DISCLAIMER, evaluate_screens
 
-SNAPSHOT_PATH = Path(__file__).parent / "data" / "ps_dailywatch_favourite.json"
-
-DISPLAY_NAMES = {
-    "NSE:NIFTY": "Nifty 50",
-    "NSE:BANKNIFTY": "Nifty Bank",
-    "NSE:INDIAVIX": "India VIX",
-}
+SNAPSHOT_PATH = Path(__file__).parent / "data" / "mtf_watchlist.json"
 
 STALE_REASON = "Cached data is stale and could not be refreshed."
 
 IST = timezone(timedelta(hours=5, minutes=30))
-NSE_SESSION_CLOSE = time(15, 30)
+
+# Session close in IST per exchange prefix. Exchanges not listed trade around the clock
+# (CFD brokers such as PEPPERSTONE, and TVC / CAPITALCOM): their candles end with their period.
+# MCX is taken as 23:30; its 23:55 schedule during US daylight-saving time is not modelled.
+SESSION_CLOSE_BY_EXCHANGE: dict[str, time] = {"NSE": time(15, 30), "MCX": time(23, 30)}
 
 _PERIODS = {
+    AnalysisTimeframe.WEEKLY: timedelta(weeks=1),
+    AnalysisTimeframe.DAILY: timedelta(days=1),
     AnalysisTimeframe.FOUR_HOUR: timedelta(hours=4),
     AnalysisTimeframe.ONE_HOUR: timedelta(hours=1),
     AnalysisTimeframe.FIFTEEN_MINUTE: timedelta(minutes=15),
@@ -54,7 +54,8 @@ def _utc_now() -> datetime:
 
 
 def display_name(symbol: str) -> str:
-    return DISPLAY_NAMES.get(symbol, symbol.split(":")[-1])
+    """Ticker part of an exchange-prefixed symbol, e.g. 'PEPPERSTONE:NATGAS' -> 'NATGAS'."""
+    return symbol.split(":")[-1]
 
 
 def load_instrument_catalog(path: Path = SNAPSHOT_PATH) -> MtfInstrumentCatalog:
@@ -73,29 +74,40 @@ def load_instrument_catalog(path: Path = SNAPSHOT_PATH) -> MtfInstrumentCatalog:
     )
 
 
-def _session_close(day: date) -> datetime:
-    return datetime.combine(day, NSE_SESSION_CLOSE, IST)
+def exchange_of(symbol: str) -> str:
+    """Exchange prefix of a symbol, e.g. 'MCX:GOLD1!' -> 'MCX'."""
+    return symbol.split(":")[0].upper() if ":" in symbol else ""
 
 
-def candle_closes_at(timeframe: AnalysisTimeframe, opened_at: datetime) -> datetime:
-    """When the candle's last NSE session ends. NSE holidays are not modelled."""
+def _session_close(day: date, close: time) -> datetime:
+    return datetime.combine(day, close, IST)
+
+
+def candle_closes_at(timeframe: AnalysisTimeframe, opened_at: datetime, exchange: str = "NSE") -> datetime:
+    """When the latest candle stops changing, using the exchange's session. Holidays are not modelled."""
+    close = SESSION_CLOSE_BY_EXCHANGE.get(exchange)
     opened = opened_at.astimezone(IST)
     if timeframe is AnalysisTimeframe.MONTHLY:
+        if close is None:
+            first = opened.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            return (first + timedelta(days=32)).replace(day=1)
         next_month = (opened.replace(day=28) + timedelta(days=4)).replace(day=1).date()
         last_day = next_month - timedelta(days=1)
         while last_day.weekday() > 4:
             last_day -= timedelta(days=1)
-        return _session_close(last_day)
+        return _session_close(last_day, close)
+    if close is None:
+        return opened_at + _PERIODS[timeframe]
     if timeframe is AnalysisTimeframe.WEEKLY:
-        return _session_close(opened.date() + timedelta(days=4 - opened.weekday()))
+        return _session_close(opened.date() + timedelta(days=4 - opened.weekday()), close)
     if timeframe is AnalysisTimeframe.DAILY:
-        return _session_close(opened.date())
-    return min(opened_at + _PERIODS[timeframe], _session_close(opened.date()))
+        return _session_close(opened.date(), close)
+    return min(opened_at + _PERIODS[timeframe], _session_close(opened.date(), close))
 
 
-def is_live_candle(timeframe: AnalysisTimeframe, opened_at: datetime, now: datetime) -> bool:
-    """Whether the latest candle can still change, i.e. its last NSE session has not closed."""
-    return now < candle_closes_at(timeframe, opened_at)
+def is_live_candle(timeframe: AnalysisTimeframe, opened_at: datetime, now: datetime, exchange: str = "NSE") -> bool:
+    """Whether the latest candle can still change, i.e. its exchange session has not closed yet."""
+    return now < candle_closes_at(timeframe, opened_at, exchange)
 
 
 class MultiTimeframeAnalysisService:
@@ -200,7 +212,7 @@ class MultiTimeframeAnalysisService:
         return evaluation, status.model_copy(
             update={
                 "last_close": evaluation.last_close,
-                "live_candle": is_live_candle(tf, evaluation.last_candle_at, now),
+                "live_candle": is_live_candle(tf, evaluation.last_candle_at, now, exchange_of(ctx.symbol)),
             }
         )
 

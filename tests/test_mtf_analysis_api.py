@@ -19,6 +19,7 @@ from god_market_api.models import (
 from god_market_api.mtf_analysis import (
     STALE_REASON,
     MultiTimeframeAnalysisService,
+    exchange_of,
     is_live_candle,
     load_instrument_catalog,
 )
@@ -64,16 +65,15 @@ def test_instruments_endpoint_returns_watchlist_sections_in_order() -> None:
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["watchlist_name"] == "PS_DailyWatch_Favourite"
-    assert payload["default_symbol"] == "NSE:NIFTY"
+    assert payload["watchlist_name"] == "PS_Commodity"
+    assert payload["default_symbol"] == "PEPPERSTONE:NATGAS"
     assert [section["name"] for section in payload["sections"]] == [
-        "LONG / MEDIUM TERM INVESTMENT",
-        "F & O",
-        "DAILY_WATCHLIST 2024 JAN",
-        "STOCKS WATCHLIST",
+        "INTERNATIONAL - STUDY, TA ANALYSIS",
+        "INDIA MCX",
     ]
-    fo = payload["sections"][1]["instruments"]
-    assert fo[0] == {"symbol": "NSE:NIFTY", "display_name": "Nifty 50"}
+    international = payload["sections"][0]["instruments"]
+    assert international[0] == {"symbol": "PEPPERSTONE:NATGAS", "display_name": "NATGAS"}
+    assert sum(len(section["instruments"]) for section in payload["sections"]) == 16
 
 
 def test_snapshot_has_no_invisible_characters_in_section_names() -> None:
@@ -82,14 +82,14 @@ def test_snapshot_has_no_invisible_characters_in_section_names() -> None:
         assert not section.name.startswith("#")
 
 
-def test_analysis_returns_complete_checklist_for_nifty() -> None:
+def test_analysis_returns_complete_checklist_for_default_instrument() -> None:
     provider = ChecklistFixtureProvider()
-    response = client_for(provider).get("/api/v1/mtf-analysis/NSE:NIFTY")
+    response = client_for(provider).get("/api/v1/mtf-analysis/PEPPERSTONE:NATGAS")
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["symbol"] == "NSE:NIFTY"
-    assert payload["display_name"] == "Nifty 50"
+    assert payload["symbol"] == "PEPPERSTONE:NATGAS"
+    assert payload["display_name"] == "NATGAS"
     assert payload["profile_version"] == "mtf-checklist-v1"
     assert payload["completeness"] == "complete"
     assert set(payload["timeframes"]) == {"monthly", "weekly", "daily", "4h", "1h", "15m"}
@@ -107,7 +107,7 @@ def test_analysis_returns_complete_checklist_for_nifty() -> None:
 
 def test_analysis_marks_missing_timeframe_and_incomplete_decision() -> None:
     provider = ChecklistFixtureProvider(unavailable=frozenset({"15m"}))
-    payload = client_for(provider).get("/api/v1/mtf-analysis/NSE:NIFTY").json()
+    payload = client_for(provider).get("/api/v1/mtf-analysis/PEPPERSTONE:NATGAS").json()
 
     assert payload["completeness"] == "partial"
     assert payload["timeframes"]["15m"]["freshness_state"] == "unavailable"
@@ -121,7 +121,7 @@ def test_analysis_marks_missing_timeframe_and_incomplete_decision() -> None:
 
 def test_analysis_with_no_data_is_unavailable_but_still_typed() -> None:
     provider = ChecklistFixtureProvider(unavailable=frozenset(tf.value for tf in TF))
-    response = client_for(provider).get("/api/v1/mtf-analysis/NSE:NIFTY")
+    response = client_for(provider).get("/api/v1/mtf-analysis/PEPPERSTONE:NATGAS")
 
     assert response.status_code == 200
     assert response.json()["completeness"] == "unavailable"
@@ -132,19 +132,19 @@ def test_symbol_outside_snapshot_is_rejected() -> None:
     response = client_for(provider).get("/api/v1/mtf-analysis/NSE:TCS")
 
     assert response.status_code == 422
-    assert "PS_DailyWatch_Favourite" in response.json()["detail"]
+    assert "PS_Commodity" in response.json()["detail"]
     assert provider.calls == []
 
 
 def test_symbol_is_case_insensitive() -> None:
-    response = client_for(ChecklistFixtureProvider()).get("/api/v1/mtf-analysis/nse:reliance")
+    response = client_for(ChecklistFixtureProvider()).get("/api/v1/mtf-analysis/mcx:silver1!")
     assert response.status_code == 200
-    assert response.json()["symbol"] == "NSE:RELIANCE"
+    assert response.json()["symbol"] == "MCX:SILVER1!"
 
 
 def test_invalid_refresh_mode_is_rejected() -> None:
     response = client_for(ChecklistFixtureProvider()).get(
-        "/api/v1/mtf-analysis/NSE:NIFTY", params={"refresh_mode": "always"}
+        "/api/v1/mtf-analysis/PEPPERSTONE:NATGAS", params={"refresh_mode": "always"}
     )
     assert response.status_code == 422
 
@@ -187,7 +187,7 @@ class StaleOnceOrchestrator:
 
 def test_stale_timeframe_is_refreshed_once() -> None:
     orchestrator = StaleOnceOrchestrator(refresh_succeeds=True)
-    result = asyncio.run(MultiTimeframeAnalysisService(orchestrator).analyze("NSE:NIFTY"))
+    result = asyncio.run(MultiTimeframeAnalysisService(orchestrator).analyze("PEPPERSTONE:NATGAS"))
 
     assert orchestrator.forced == [[TF.ONE_HOUR]]
     assert result.timeframes[TF.ONE_HOUR].freshness_state is SourceState.READY
@@ -196,7 +196,7 @@ def test_stale_timeframe_is_refreshed_once() -> None:
 
 def test_stale_timeframe_that_cannot_refresh_is_unavailable() -> None:
     orchestrator = StaleOnceOrchestrator(refresh_succeeds=False)
-    result = asyncio.run(MultiTimeframeAnalysisService(orchestrator).analyze("NSE:NIFTY"))
+    result = asyncio.run(MultiTimeframeAnalysisService(orchestrator).analyze("PEPPERSTONE:NATGAS"))
 
     status = result.timeframes[TF.ONE_HOUR]
     assert status.freshness_state is SourceState.STALE
@@ -207,6 +207,32 @@ def test_stale_timeframe_that_cannot_refresh_is_unavailable() -> None:
 
 def utc(day: int, hour: int, minute: int = 0, month: int = 10) -> datetime:
     return datetime(2026, month, day, hour, minute, tzinfo=timezone.utc)
+
+
+def test_mcx_candles_follow_the_evening_session() -> None:
+    # Friday 9 Oct: 17:30 IST is after NSE's close but inside MCX's evening session.
+    after_nse_close = utc(9, 12, 0)
+    assert is_live_candle(TF.DAILY, utc(9, 3, 45), after_nse_close, "MCX")
+    assert not is_live_candle(TF.DAILY, utc(9, 3, 45), after_nse_close, "NSE")
+    assert not is_live_candle(TF.DAILY, utc(9, 3, 45), utc(9, 18, 1), "MCX")  # 23:31 IST
+    assert is_live_candle(TF.MONTHLY, utc(1, 3, 45), utc(30, 12, 0), "MCX")
+    assert not is_live_candle(TF.MONTHLY, utc(1, 3, 45), utc(30, 18, 30), "MCX")
+
+
+def test_around_the_clock_instruments_end_with_their_period() -> None:
+    # CFD daily bars open at 22:00 UTC; the candle lives for one day, with no session cut-off.
+    assert is_live_candle(TF.DAILY, utc(12, 22, 0), utc(13, 10, 0), "PEPPERSTONE")
+    assert not is_live_candle(TF.DAILY, utc(12, 22, 0), utc(13, 23, 0), "PEPPERSTONE")
+    assert is_live_candle(TF.WEEKLY, utc(4, 22, 0), utc(10, 0, 0), "PEPPERSTONE")
+    # October's last candle runs until 1 November 00:00 IST (31 Oct 18:30 UTC).
+    assert is_live_candle(TF.MONTHLY, utc(1, 0, 0), utc(31, 18, 0), "PEPPERSTONE")
+    assert not is_live_candle(TF.MONTHLY, utc(1, 0, 0), utc(31, 19, 0), "PEPPERSTONE")
+
+
+def test_exchange_prefix_is_read_from_the_symbol() -> None:
+    assert exchange_of("MCX:GOLD1!") == "MCX"
+    assert exchange_of("pepperstone:natgas") == "PEPPERSTONE"
+    assert exchange_of("NATGAS") == ""
 
 
 def test_live_candle_during_the_session() -> None:

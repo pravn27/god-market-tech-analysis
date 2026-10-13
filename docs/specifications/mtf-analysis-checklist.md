@@ -4,7 +4,7 @@ Status: **Approved 2026-10-09**. Decisions are recorded in [Decisions](#decision
 
 ## Objective
 
-Give the user a one-screen, read-only **PAPA + SMM multi-timeframe checklist** for one instrument at a time. Instruments come from the user's TradingView watchlist `PS_DailyWatch_Favourite`; Nifty 50 (`NSE:NIFTY`) is the default selection. The page reproduces the layout of the user's own worksheet (`knowledge source/multi-timeframe-analysis.xlsx`, sheet `nifty50 latest`) and fills every row that can be calculated deterministically from TradingView OHLCV.
+Give the user a one-screen, read-only **PAPA + SMM multi-timeframe checklist** for one instrument at a time. Instruments come from the user's TradingView watchlist `PS_Commodity`; NATGAS (`PEPPERSTONE:NATGAS`) is the default selection. The page reproduces the layout of the user's own worksheet (`knowledge source/multi-timeframe-analysis.xlsx`, sheet `nifty50 latest`) and fills every row that can be calculated deterministically from TradingView OHLCV.
 
 The user still owns the trade decision. Automated rows show the checklist wording used in the course notes, the raw values behind them, and the source/freshness of the candles. Subjective rows remain visible as **Manual check**.
 
@@ -67,7 +67,7 @@ Eight timeframe columns in four layers, exactly as the worksheet. A timeframe th
 
 ## Calculation profile `mtf-checklist-v1`
 
-All values are calculated locally from the normalized candles of each timeframe. The **latest candle is used even if still forming**; the response labels it `live_candle: true` until the candle's last NSE session closes (15:30 IST): the same day for Daily, Friday for Weekly, the last weekday of the month for Monthly, and the earlier of the period end or 15:30 for intraday candles. NSE holidays are not modelled.
+All values are calculated locally from the normalized candles of each timeframe. The **latest candle is used even if still forming**; the response labels it `live_candle: true` until the candle's exchange session closes. Session close (IST): NSE 15:30, MCX 23:30 (its 23:55 US-DST schedule is not modelled). Exchanges not listed (PEPPERSTONE, TVC, CAPITALCOM) trade around the clock, so their candles are live until the period ends. Intraday candles end at the earlier of the period end and the session close; Weekly ends on Friday's close, Monthly on the last weekday's close. Holidays are not modelled.
 
 | Indicator | Settings |
 | --- | --- |
@@ -264,29 +264,29 @@ MultiTimeframeAnalysis
 ```
 
 - Reuses the existing multi-timeframe orchestrator, cache, freshness policy, and request guardrails. Existing `/api/v1/chart-context` and `/api/v1/multi-timeframe-context` contracts are unchanged.
-- Only symbols in the recorded `PS_DailyWatch_Favourite` snapshot are accepted. Others return 422.
-- `GET /api/v1/mtf-analysis/instruments` returns the snapshot: sections in watchlist order, each with its symbols, plus `default_symbol` (`NSE:NIFTY`) and the snapshot's `recorded_at`.
+- Only symbols in the recorded `PS_Commodity` snapshot are accepted. Others return 422.
+- `GET /api/v1/mtf-analysis/instruments` returns the snapshot: sections in watchlist order, each with its symbols, plus `default_symbol` (`PEPPERSTONE:NATGAS`) and the snapshot's `recorded_at`.
 
 ### Instrument snapshot
 
 - The watchlist is read **once, read-only**, through the TradingView Desktop page's own custom-list endpoint (`GET /api/v1/symbols_list/custom/`), which does not change the active watchlist, chart, or layout.
-- The snapshot is stored in the repository (`src/god_market_api/data/ps_dailywatch_favourite.json`) with section names, symbol order, and `recorded_at`. Section markers (`###…`) become section names with invisible characters removed.
-- `scripts/sync-mtf-watchlist.mjs` re-reads the list on request and rewrites the snapshot; it never writes to TradingView.
+- The snapshot is stored in the repository (`src/god_market_api/data/mtf_watchlist.json`) with the watchlist name, default symbol, section names, symbol order, and `recorded_at`. Section markers (`###…`) become section names with invisible characters removed.
+- `scripts/sync-mtf-watchlist.mjs --list <name> --default <symbol>` re-reads the list on request and rewrites the snapshot; it never writes to TradingView. The default symbol must be in the list.
 - Market data for every instrument still comes from the official MCP through the existing orchestrator.
 
-Snapshot recorded 2026-10-09 (32 instruments):
+Snapshot recorded 2026-10-13 (16 instruments, `PS_Commodity`, default `PEPPERSTONE:NATGAS`):
 
 | Section | Symbols |
 | --- | --- |
-| LONG / MEDIUM TERM INVESTMENT | NSE:NIFTYBEES, NSE:GOLDBEES, NSE:SILVERBEES |
-| F & O | NSE:NIFTY, NSE:BANKNIFTY, NSE:INDIAVIX |
-| DAILY_WATCHLIST 2024 JAN | NSE:PNB, NSE:BANKINDIA, NSE:IDFCFIRSTB, NSE:RADICO, NSE:SOBHA, NSE:OBEROIRLTY, NSE:LT, NSE:HDFCBANK, NSE:LUPIN, NSE:RELIANCE, NSE:LTM, NSE:DIVISLAB, NSE:HCG, NSE:HINDZINC, NSE:AXISBANK, NSE:BHARTIARTL, NSE:TATAPOWER, NSE:MCX |
-| STOCKS WATCHLIST | NSE:RVNL, NSE:RAILTEL, NSE:NTPC, NSE:PFC, NSE:GAIL, NSE:GRSE, NSE:POWERGRID, NSE:RECLTD |
+| INTERNATIONAL - STUDY, TA ANALYSIS | PEPPERSTONE:NATGAS, TVC:GOLD, TVC:UKOIL, TVC:USOIL, TVC:SILVER, CAPITALCOM:COPPER |
+| INDIA MCX | MCX:NATURALGAS1!, MCX:GOLD1!, MCX:GOLDPETAL1!, MCX:CRUDEOIL1!, MCX:CRUDEOILM1!, MCX:GOLDGUINEA1!, MCX:SILVER1!, MCX:SILVERMIC1!, MCX:SILVERM1!, MCX:NATGASMINI1! |
+
+The previous snapshot (`PS_DailyWatch_Favourite`, 32 NSE instruments, recorded 2026-10-09) was replaced on request.
 
 ## UI
 
 - New primary navigation item **Multi-Timeframe** at `/multi-timeframe`, next to **Global Market**; same header, theme switcher, and footer.
-- Controls: searchable instrument dropdown grouped by the `PS_DailyWatch_Favourite` sections (default Nifty 50), last-updated time, Refresh. The selected symbol is kept in the URL (`?symbol=NSE:NIFTY`).
+- Controls: searchable instrument dropdown grouped by the `PS_Commodity` sections (default NATGAS, `PEPPERSTONE:NATGAS`), last-updated time, Refresh. The selected symbol is kept in the URL (`?symbol=PEPPERSTONE:NATGAS`).
 - Headline strip: Double Screen (Tide + Wave) and Triple Screen decisions with the disclaimer.
 - Matrix: sticky checklist column; grouped column headers per layer with timeframe sub-columns; each cell shows compact tags coloured by bias (bullish green, bearish red, neutral grey, unavailable dashed); manual rows show a muted `Manual check` tag.
 - Per-timeframe header shows source, freshness badge, and `Live candle`.
@@ -358,7 +358,7 @@ Confirmed by the user on 2026-10-09:
 
 | Topic | Decision |
 | --- | --- |
-| Symbols | All instruments in `PS_DailyWatch_Favourite`, grouped by section; Nifty 50 (`NSE:NIFTY`) by default |
+| Symbols | All instruments in the recorded watchlist, grouped by section. Initially `PS_DailyWatch_Favourite` with Nifty 50 by default; changed on 2026-10-13 to `PS_Commodity` with NATGAS (`PEPPERSTONE:NATGAS`) by default |
 | Watchlist access | One-time read-only snapshot stored in the app; refreshed on request by a script |
 | Subjective rows | Shown as `Manual check`, not automated |
 | Wording | Worksheet wording (BUY / SELL / NOT CLEAR, Up Tick, PCO state) with a not-advice caption |
@@ -371,4 +371,5 @@ Confirmed by the user on 2026-10-09:
 
 - Indices (`NSE:NIFTY`, `NSE:BANKNIFTY`, `NSE:INDIAVIX`) have no volume on TradingView; volume evidence is shown only when candles carry volume.
 - `NSE:INDIAVIX` is a volatility index; the checklist is calculated the same way but its bias colours do not mean market direction. The UI shows a note for it.
+- MCX session close is taken as 23:30 IST; the 23:55 schedule during US daylight-saving time is not modelled. Holiday calendars are not modelled for any exchange.
 - Angular trendlines and chart patterns are manual in v1; heuristic detection may be proposed later as a separate, approved change.

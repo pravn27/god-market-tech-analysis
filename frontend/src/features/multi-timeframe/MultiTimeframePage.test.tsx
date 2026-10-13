@@ -7,12 +7,12 @@ import type { AnalysisTimeframe, MultiTimeframeAnalysis, MtfInstrumentCatalog } 
 import MultiTimeframePage from './MultiTimeframePage'
 
 const catalog: MtfInstrumentCatalog = {
-  watchlist_name: 'PS_DailyWatch_Favourite',
+  watchlist_name: 'PS_Commodity',
   recorded_at: '2026-10-09T10:07:27Z',
-  default_symbol: 'NSE:NIFTY',
+  default_symbol: 'PEPPERSTONE:NATGAS',
   sections: [
-    { name: 'F & O', instruments: [{ symbol: 'NSE:NIFTY', display_name: 'Nifty 50' }] },
-    { name: 'DAILY_WATCHLIST 2024 JAN', instruments: [{ symbol: 'NSE:RELIANCE', display_name: 'RELIANCE' }] },
+    { name: 'INTERNATIONAL - STUDY, TA ANALYSIS', instruments: [{ symbol: 'PEPPERSTONE:NATGAS', display_name: 'NATGAS' }] },
+    { name: 'INDIA MCX', instruments: [{ symbol: 'MCX:SILVER1!', display_name: 'SILVER1!' }] },
   ],
 }
 
@@ -72,8 +72,8 @@ function mockApi() {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input)
     if (url.includes('/mtf-analysis/instruments')) return new Response(JSON.stringify(catalog), { status: 200 })
-    if (url.includes('NSE%3ARELIANCE')) return new Response(JSON.stringify(analysisFor('NSE:RELIANCE', 'RELIANCE')), { status: 200 })
-    return new Response(JSON.stringify(analysisFor('NSE:NIFTY', 'Nifty 50')), { status: 200 })
+    if (url.includes('MCX%3ASILVER1!')) return new Response(JSON.stringify(analysisFor('MCX:SILVER1!', 'SILVER1!')), { status: 200 })
+    return new Response(JSON.stringify(analysisFor('PEPPERSTONE:NATGAS', 'NATGAS')), { status: 200 })
   })
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
@@ -94,12 +94,12 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-test('defaults to Nifty 50 and renders decisions, eight timeframe columns, and manual rows', async () => {
+test('defaults to the first commodity instrument and renders decisions, eight timeframe columns, and manual rows', async () => {
   const fetchMock = mockApi()
   renderPage()
 
-  expect(await screen.findByText(/Nifty 50 · NSE:NIFTY/)).toBeInTheDocument()
-  expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/mtf-analysis/NSE%3ANIFTY?refresh_mode=prefer_cache'), expect.anything())
+  expect(await screen.findByText(/NATGAS · PEPPERSTONE:NATGAS/)).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/mtf-analysis/PEPPERSTONE%3ANATGAS?refresh_mode=prefer_cache'), expect.anything())
 
   const decisions = screen.getByRole('region', { name: 'Screen decisions' })
   expect(within(decisions).getByText('Double Screen (TIDE + WAVE)')).toBeInTheDocument()
@@ -137,10 +137,10 @@ test('opens the detail drawer with values when a cell is clicked', async () => {
 
 test('uses the symbol from the URL when it is in the watchlist snapshot', async () => {
   const fetchMock = mockApi()
-  renderPage('/multi-timeframe?symbol=NSE:RELIANCE')
+  renderPage('/multi-timeframe?symbol=MCX:SILVER1!')
 
-  expect(await screen.findByText(/RELIANCE · NSE:RELIANCE/)).toBeInTheDocument()
-  expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining('NSE%3ANIFTY'), expect.anything())
+  expect(await screen.findByText(/SILVER1! · MCX:SILVER1!/)).toBeInTheDocument()
+  expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining('PEPPERSTONE%3ANATGAS'), expect.anything())
 })
 
 test('explains that India VIX colours describe volatility, not market direction', async () => {
@@ -159,18 +159,18 @@ test('falls back to the default instrument for a symbol outside the snapshot', a
   mockApi()
   renderPage('/multi-timeframe?symbol=NSE:TCS')
 
-  expect(await screen.findByText(/Nifty 50 · NSE:NIFTY/)).toBeInTheDocument()
+  expect(await screen.findByText(/NATGAS · PEPPERSTONE:NATGAS/)).toBeInTheDocument()
 })
 
 test('Refresh Data forces a source refresh', async () => {
   const fetchMock = mockApi()
   renderPage()
-  await screen.findByText(/Nifty 50 · NSE:NIFTY/)
+  await screen.findByText(/NATGAS · PEPPERSTONE:NATGAS/)
 
   fireEvent.click(screen.getByRole('button', { name: /Refresh Data/ }))
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(
-    expect.stringContaining('/mtf-analysis/NSE%3ANIFTY?refresh_mode=force_refresh'),
+    expect.stringContaining('/mtf-analysis/PEPPERSTONE%3ANATGAS?refresh_mode=force_refresh'),
     expect.anything(),
   ))
 })

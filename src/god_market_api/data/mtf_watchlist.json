@@ -1,0 +1,33 @@
+{
+  "watchlist_name": "PS_Commodity",
+  "recorded_at": "2026-10-13T00:33:00.714Z",
+  "default_symbol": "PEPPERSTONE:NATGAS",
+  "sections": [
+    {
+      "name": "INTERNATIONAL - STUDY, TA ANALYSIS",
+      "symbols": [
+        "PEPPERSTONE:NATGAS",
+        "TVC:GOLD",
+        "TVC:UKOIL",
+        "TVC:USOIL",
+        "TVC:SILVER",
+        "CAPITALCOM:COPPER"
+      ]
+    },
+    {
+      "name": "INDIA MCX",
+      "symbols": [
+        "MCX:NATURALGAS1!",
+        "MCX:GOLD1!",
+        "MCX:GOLDPETAL1!",
+        "MCX:CRUDEOIL1!",
+        "MCX:CRUDEOILM1!",
+        "MCX:GOLDGUINEA1!",
+        "MCX:SILVER1!",
+        "MCX:SILVERMIC1!",
+        "MCX:SILVERM1!",
+        "MCX:NATGASMINI1!"
+      ]
+    }
+  ]
+}

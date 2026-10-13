@@ -3,18 +3,19 @@
 // repository snapshot. Read-only: it issues one GET to TradingView's custom-list
 // endpoint inside the running Desktop page and never changes watchlists, charts, or layouts.
 //
-// Usage: node scripts/sync-mtf-watchlist.mjs [--list "PS_DailyWatch_Favourite"] [--dry-run]
+// Usage: node scripts/sync-mtf-watchlist.mjs --list "PS_Commodity" --default "PEPPERSTONE:NATGAS" [--dry-run]
 
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const snapshotPath = join(root, "src/god_market_api/data/ps_dailywatch_favourite.json");
-const defaultSymbol = "NSE:NIFTY";
+const snapshotPath = join(root, "src/god_market_api/data/mtf_watchlist.json");
 
 const args = process.argv.slice(2);
-const listName = args.includes("--list") ? args[args.indexOf("--list") + 1] : "PS_DailyWatch_Favourite";
+const option = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback);
+const listName = option("--list", "PS_Commodity");
+const requestedDefault = option("--default", null);
 const dryRun = args.includes("--dry-run");
 
 function bridgeCliPath() {
@@ -81,10 +82,14 @@ if (result?.error) {
 
 const sections = toSections(result.symbols);
 const allSymbols = sections.flatMap((section) => section.symbols);
+if (requestedDefault && !allSymbols.includes(requestedDefault)) {
+  console.error(`--default "${requestedDefault}" is not in "${listName}".`);
+  process.exit(1);
+}
 const snapshot = {
   watchlist_name: listName,
   recorded_at: new Date().toISOString(),
-  default_symbol: allSymbols.includes(defaultSymbol) ? defaultSymbol : allSymbols[0],
+  default_symbol: requestedDefault ?? allSymbols[0],
   sections,
 };
 

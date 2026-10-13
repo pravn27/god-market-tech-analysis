@@ -1,5 +1,7 @@
 # Low-level design
 
+This page describes the target design. For the code as built today, including the MTF pipeline, cache, screens and frontend structure, see [as-built-system-design.md](as-built-system-design.md).
+
 ## Internal flow
 
 ```mermaid

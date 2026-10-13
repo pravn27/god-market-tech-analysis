@@ -1,5 +1,7 @@
 # High-level design
 
+This page describes the target architecture. For the code as built today, with runtime flows and diagrams, see [as-built-system-design.md](as-built-system-design.md).
+
 ## System boundary
 
 The system runs only on the user's Mac or Windows machine. Its primary request path deliberately follows the supplied `high-level-design-flow.png`:

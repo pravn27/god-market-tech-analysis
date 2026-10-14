@@ -206,13 +206,21 @@ class MultiTimeframeAnalysisService:
         )
         if ctx.freshness_state is SourceState.STALE:
             return None, status.model_copy(update={"unavailable_reason": STALE_REASON})
-        evaluation = evaluate_timeframe(ctx.candles, self._thresholds)
+        latest_candle_live = bool(
+            ctx.candles
+            and is_live_candle(tf, ctx.candles[-1].timestamp, now, exchange_of(ctx.symbol))
+        )
+        evaluation = evaluate_timeframe(
+            ctx.candles,
+            self._thresholds,
+            latest_candle_live=latest_candle_live,
+        )
         if evaluation.series is None:
             return evaluation, status.model_copy(update={"unavailable_reason": evaluation.unavailable_reason})
         return evaluation, status.model_copy(
             update={
                 "last_close": evaluation.last_close,
-                "live_candle": is_live_candle(tf, evaluation.last_candle_at, now, exchange_of(ctx.symbol)),
+                "live_candle": latest_candle_live,
             }
         )
 

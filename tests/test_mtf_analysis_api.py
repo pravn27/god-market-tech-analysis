@@ -1,7 +1,7 @@
 """HTTP contract tests for the multi-timeframe checklist endpoints (fixture provider only)."""
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -23,6 +23,7 @@ from god_market_api.mtf_analysis import (
     is_live_candle,
     load_instrument_catalog,
 )
+from god_market_api.mtf_orchestrator import MultiTimeframeContextOrchestrator
 from god_market_api.providers import DataSourceUnavailableError
 
 from test_mtf_checklist import make_candles
@@ -99,10 +100,28 @@ def test_analysis_returns_complete_checklist_for_default_instrument() -> None:
     assert "not financial advice" in payload["decisions"]["disclaimer"]
 
     rows = {row["id"]: row for row in payload["rows"]}
+    assert set(rows["dow_structure_v2"]["cells"]) == set(payload["timeframes"])
     assert set(rows["macd"]["cells"]) == set(payload["timeframes"])
     assert rows["macd"]["cells"]["daily"]["labels"]
     assert rows["what_if"]["automated"] is False
     assert rows["what_if"]["cells"] == {}
+
+
+def test_analysis_excludes_a_forming_candle_only_from_dow_v2() -> None:
+    provider = ChecklistFixtureProvider()
+    candles = make_candles()
+    now = candles[-1].timestamp + timedelta(hours=1)
+    orchestrator = MultiTimeframeContextOrchestrator(provider, clock=lambda: now)
+    service = MultiTimeframeAnalysisService(orchestrator, clock=lambda: now)
+
+    result = asyncio.run(service.analyze("PEPPERSTONE:NATGAS"))
+    rows = {row.id: row for row in result.rows}
+    daily_v2 = rows["dow_structure_v2"].cells[TF.DAILY]
+
+    assert result.timeframes[TF.DAILY].live_candle is True
+    assert daily_v2.values["excluded_live_candle"] is True
+    assert daily_v2.values["used_closed_candles"] == len(candles) - 1
+    assert rows["dow_trend"].cells[TF.DAILY].values["last_swing_high"]
 
 
 def test_analysis_marks_missing_timeframe_and_incomplete_decision() -> None:

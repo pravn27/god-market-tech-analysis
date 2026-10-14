@@ -255,6 +255,39 @@ def make_candles(n=300):
     return candles
 
 
+def test_dow_v2_row_is_additive_and_immediately_follows_the_v1_row():
+    row_ids = [row.id for row in CHECKLIST_ROWS]
+
+    assert row_ids[row_ids.index("dow_trend") + 1] == "dow_structure_v2"
+
+
+def test_dow_v2_excludes_only_the_latest_live_candle():
+    candles = make_candles()
+
+    closed = evaluate_timeframe(candles, T, latest_candle_live=False)
+    with_live = evaluate_timeframe(candles, T, latest_candle_live=True)
+
+    closed_v2 = closed.cells["dow_structure_v2"]
+    live_v2 = with_live.cells["dow_structure_v2"]
+    assert closed_v2.values["used_closed_candles"] == len(candles)
+    assert closed_v2.values["excluded_live_candle"] is False
+    assert live_v2.values["used_closed_candles"] == len(candles) - 1
+    assert live_v2.values["excluded_live_candle"] is True
+    assert live_v2.values["latest_closed_candle_at"] == candles[-2].timestamp.isoformat()
+    assert with_live.cells["dow_trend"] == closed.cells["dow_trend"]
+
+
+def test_dow_v2_exposes_structure_break_significance_and_swing_evidence():
+    cell = evaluate_timeframe(make_candles(), T).cells["dow_structure_v2"]
+
+    assert cell.labels
+    assert cell.rule_ids == ["dow-v2", "dow-v2-break", "dow-v2-significance"]
+    assert cell.values["confirmation_lag_bars"] == T.pivot_window
+    assert "previous_swing_high_at" in cell.values
+    assert "last_swing_low_at" in cell.values
+    assert "structural_moves_significant" in cell.values
+
+
 def test_evaluate_timeframe_fills_every_automated_row():
     evaluation = evaluate_timeframe(make_candles(), T)
     automated = [row.id for row in CHECKLIST_ROWS if row.automated]

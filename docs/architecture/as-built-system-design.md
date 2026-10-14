@@ -408,7 +408,7 @@ flowchart TD
     C --> PA["locate_price, price_action,<br/>detect_candle_patterns"]
     SER --> CELLS["Checklist cells<br/>bollinger_cell, rsi_cell, dmi_cell, adx_cell,<br/>macd_cell, stochastic_cell, ema_cell"]
     CELLS -. "ChecklistCell: labels, bias, values, rule_ids" .-> ROWS
-    CELLS --> ROWS["CHECKLIST_ROWS (20 rows)"]
+    CELLS --> ROWS["CHECKLIST_ROWS (21 rows)"]
     DOW --> EVAL
     PA --> EVAL
     ROWS --> EVAL["TimeframeEvaluation"]
@@ -421,7 +421,7 @@ Indicator conventions match TradingView Pine:
 - RSI, ATR and DMI/ADX use Wilder's RMA.
 - Bollinger Bands use the population standard deviation.
 
-Thresholds come from `ChecklistThresholds` (version `mtf-checklist-v1`): recent-crossover window 3, slope lookback 3, RSI neutral band 45 to 55, Bollinger near-median fraction 0.10, Bollinger flat tolerance 0.005, S/R proximity 1.0 ATR, MACD near-zero fraction 0.10, pivot window 5, wick tolerance 0.02.
+Thresholds come from `ChecklistThresholds` (version `mtf-checklist-v1`): recent-crossover window 3, slope lookback 3, RSI neutral band 45 to 55, Bollinger near-median fraction 0.10, Bollinger flat tolerance 0.005, S/R proximity 1.0 ATR, MACD near-zero fraction 0.10, pivot window 5, Dow v2 significance 0.5 ATR, wick tolerance 0.02. The additive Dow v2 row uses only closed candles, normalizes alternating swings, and reports contracting/expanding ranges plus structure breaks; it does not feed screen decisions.
 
 ### 3.4 Screen decisions (`evaluate_screens`)
 
@@ -541,7 +541,7 @@ flowchart TD
     R2 --> MTP["MultiTimeframePage.tsx"]
     MTP --> MTH["useMultiTimeframe.ts<br/>instruments and analysis queries"]
     MTP --> MTC["DecisionStrip.tsx<br/>Double and Triple Screen"]
-    MTP --> MTM["ChecklistMatrix.tsx<br/>20 rows x 6 timeframes"]
+    MTP --> MTM["ChecklistMatrix.tsx<br/>21 rows x 6 timeframes"]
     MTM --> MTD["MatrixDetailDrawer.tsx"]
     MTP --> MTF["mtfFormat.ts"]
 

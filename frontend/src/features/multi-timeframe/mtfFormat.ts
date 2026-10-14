@@ -35,8 +35,9 @@ export function formatTimestamp(value: string | null) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
-export function formatValue(value: number | string | null) {
+export function formatValue(value: boolean | number | string | null) {
   if (value === null) return '—'
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
   if (typeof value === 'string') return value
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 })
 }

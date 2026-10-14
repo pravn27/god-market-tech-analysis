@@ -45,6 +45,7 @@ Eight timeframe columns in four layers, exactly as the worksheet. A timeframe th
 | # | Section | Row | Automated? |
 | --- | --- | --- | --- |
 | 1 | Overall Context / Dow Theory | Trend structure | Yes |
+| 1 | | Dow structure v2 (closed candles) | Yes (additive; see [Dow Structure v2](dow-structure-v2.md)) |
 | 1 | | Where do you stand in overall trend / context? | Yes |
 | 1 | | Support / resistance levels (horizontal) | Yes (nearest swing levels); angular trendlines manual |
 | 1 | | Significant & event candles | Manual |
@@ -80,6 +81,12 @@ All values are calculated locally from the normalized candles of each timeframe.
 | ATR | 14, Wilder (only for proximity tests) |
 | Swing pivots | 5 candles on each side |
 
+The compatibility Dow row uses the latest candle as before. The additive
+`dow_structure_v2` row excludes the latest candle when it is still forming,
+normalizes confirmed pivots into alternating swings, distinguishes contracting
+and expanding ranges, and reports structure-break evidence. It does not affect
+Double/Triple Screen decisions.
+
 ### Configurable thresholds (defaults)
 
 | Name | Default | Meaning |
@@ -92,6 +99,7 @@ All values are calculated locally from the normalized candles of each timeframe.
 | `sr_proximity_atr` | 1.0 | Price within 1 ATR of a swing level is "near" it. |
 | `macd_near_zero_fraction` | 0.10 | MACD within 10% of its recent 50-candle absolute range is "near zero line". |
 | `dmi_contracting_lookback` | 3 | `abs(+DI − −DI)` lower than 3 candles earlier is "contracting". |
+| `dow_significance_atr` | 0.5 | V2 reports whether both compared swing changes are at least 0.5 ATR; this does not alter structure or bias. |
 
 Insufficient candles for any setting produce an **unavailable** cell with a reason; they never produce a neutral label.
 

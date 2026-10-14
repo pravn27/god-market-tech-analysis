@@ -123,7 +123,7 @@ class ChecklistCell(BaseModel):
 
     labels: List[str] = Field(default_factory=list)
     bias: Bias = Bias.NEUTRAL
-    values: Dict[str, Union[float, str, None]] = Field(default_factory=dict)
+    values: Dict[str, Union[bool, float, str, None]] = Field(default_factory=dict)
     rule_ids: List[str] = Field(default_factory=list)
     unavailable_reason: Optional[str] = None
 

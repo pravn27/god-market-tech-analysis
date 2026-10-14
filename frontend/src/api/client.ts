@@ -49,7 +49,7 @@ export interface MtfInstrumentCatalog {
 export interface ChecklistCell {
   labels: string[]
   bias: Bias
-  values: Record<string, number | string | null>
+  values: Record<string, boolean | number | string | null>
   rule_ids: string[]
   unavailable_reason: string | null
 }

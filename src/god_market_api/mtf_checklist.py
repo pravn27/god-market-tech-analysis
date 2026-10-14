@@ -12,6 +12,7 @@ from typing import Dict, List, Mapping, Optional, Sequence
 from .models import Bias, Candle, ChecklistCell
 from .price_structure import (
     LocationKind,
+    analyze_dow_structure_v2,
     detect_candle_patterns,
     dow_trend,
     find_pivots,
@@ -44,6 +45,7 @@ class ChecklistThresholds:
     macd_near_zero_fraction: float = 0.10
     macd_zero_range_window: int = 50
     wick_tolerance: float = 0.02
+    dow_significance_atr: float = 0.5
 
     @property
     def version(self) -> str:
@@ -65,6 +67,7 @@ SECTION_SETUPS = "5. Concepts / Setups / Confirmation"
 
 CHECKLIST_ROWS: tuple[ChecklistRow, ...] = (
     ChecklistRow("dow_trend", SECTION_CONTEXT, "Overall Context / View / Dow Theory", True),
+    ChecklistRow("dow_structure_v2", SECTION_CONTEXT, "Dow structure v2 (closed candles)", True),
     ChecklistRow("location", SECTION_CONTEXT, "Where do you stand in overall trend / context?", True),
     ChecklistRow("support_resistance", SECTION_CONTEXT, "Support / Resistance (horizontal swing levels)", True),
     ChecklistRow("trendlines", SECTION_CONTEXT, "Angular trendlines", False),
@@ -447,7 +450,12 @@ def ema_cell(closes: Sequence[float], emas: Mapping[int, Series], t: ChecklistTh
 # Whole timeframe
 
 
-def evaluate_timeframe(candles: Sequence[Candle], t: ChecklistThresholds) -> TimeframeEvaluation:
+def evaluate_timeframe(
+    candles: Sequence[Candle],
+    t: ChecklistThresholds,
+    *,
+    latest_candle_live: bool = False,
+) -> TimeframeEvaluation:
     automated = [row.id for row in CHECKLIST_ROWS if row.automated]
     try:
         s = calculate_indicators(candles, t.indicators)
@@ -474,6 +482,64 @@ def evaluate_timeframe(candles: Sequence[Candle], t: ChecklistThresholds) -> Tim
             },
             rule_ids=["dow"],
         )
+
+    structure_candles = candles[:-1] if latest_candle_live else candles
+    structure_highs = [candle.high for candle in structure_candles]
+    structure_lows = [candle.low for candle in structure_candles]
+    v2_highs, v2_lows = find_pivots(
+        structure_highs, structure_lows, t.pivot_window, t.pivot_window
+    )
+    v2_atr = _at(s.atr, 1 if latest_candle_live else 0)
+    if structure_candles:
+        v2 = analyze_dow_structure_v2(
+            v2_highs,
+            v2_lows,
+            latest_close=structure_candles[-1].close,
+            atr_value=v2_atr,
+            significance_atr=t.dow_significance_atr,
+        )
+        values = {
+            "latest_closed_candle_at": structure_candles[-1].timestamp.isoformat(),
+            "latest_closed_close": structure_candles[-1].close,
+            "used_closed_candles": len(structure_candles),
+            "excluded_live_candle": latest_candle_live,
+            "confirmation_lag_bars": t.pivot_window,
+            "ambiguous_pivot_count": v2.ambiguous_pivot_count,
+            "high_delta_atr": _round(v2.high_delta_atr, 2),
+            "low_delta_atr": _round(v2.low_delta_atr, 2),
+            "structural_moves_significant": v2.structural_moves_significant,
+        }
+        if len(v2.swing_highs) >= 2 and len(v2.swing_lows) >= 2:
+            previous_high, last_high = v2.swing_highs
+            previous_low, last_low = v2.swing_lows
+            values.update(
+                {
+                    "previous_swing_high": previous_high.price,
+                    "previous_swing_high_at": structure_candles[previous_high.index].timestamp.isoformat(),
+                    "last_swing_high": last_high.price,
+                    "last_swing_high_at": structure_candles[last_high.index].timestamp.isoformat(),
+                    "previous_swing_low": previous_low.price,
+                    "previous_swing_low_at": structure_candles[previous_low.index].timestamp.isoformat(),
+                    "last_swing_low": last_low.price,
+                    "last_swing_low_at": structure_candles[last_low.index].timestamp.isoformat(),
+                }
+            )
+        labels = [v2.label, v2.break_label]
+        if v2.ambiguous_pivot_count:
+            labels.append(f"{v2.ambiguous_pivot_count} ambiguous outside-bar pivot(s) omitted")
+        cells["dow_structure_v2"] = ChecklistCell(
+            labels=labels,
+            bias=v2.bias,
+            values=values,
+            rule_ids=["dow-v2", "dow-v2-break", "dow-v2-significance"],
+            unavailable_reason=(
+                "Fewer than two confirmed alternating swing highs and lows."
+                if v2.bias is Bias.UNAVAILABLE
+                else None
+            ),
+        )
+    else:
+        cells["dow_structure_v2"] = _unavailable("No closed candles are available.", "dow-v2")
 
     close = s.closes[-1]
     atr_value = _at(s.atr)

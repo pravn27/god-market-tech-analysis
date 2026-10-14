@@ -40,6 +40,58 @@ class DowTrend:
     swing_lows: tuple[Pivot, ...] = ()
 
 
+class SwingKind(str, Enum):
+    HIGH = "high"
+    LOW = "low"
+
+
+@dataclass(frozen=True)
+class SwingPoint:
+    kind: SwingKind
+    index: int
+    price: float
+
+
+@dataclass(frozen=True)
+class NormalizedSwings:
+    swings: tuple[SwingPoint, ...]
+    ambiguous_pivot_count: int = 0
+
+
+class DowStructureV2Kind(str, Enum):
+    UP = "up"
+    DOWN = "down"
+    CONTRACTING_RANGE = "contracting_range"
+    EXPANDING_RANGE = "expanding_range"
+    TRANSITION = "transition"
+    UNAVAILABLE = "unavailable"
+
+
+_DOW_V2_LABELS = {
+    DowStructureV2Kind.UP: ("HH - HL (Up Trend)", Bias.BULLISH),
+    DowStructureV2Kind.DOWN: ("LL - LH (Down Trend)", Bias.BEARISH),
+    DowStructureV2Kind.CONTRACTING_RANGE: ("LH - HL (Contracting Range)", Bias.NEUTRAL),
+    DowStructureV2Kind.EXPANDING_RANGE: ("HH - LL (Expanding Range)", Bias.NEUTRAL),
+    DowStructureV2Kind.TRANSITION: ("Equal / Transitional Structure", Bias.NEUTRAL),
+    DowStructureV2Kind.UNAVAILABLE: ("Not enough alternating swings", Bias.UNAVAILABLE),
+}
+
+
+@dataclass(frozen=True)
+class DowStructureV2:
+    structure: DowStructureV2Kind
+    label: str
+    bias: Bias
+    break_label: str
+    swings: tuple[SwingPoint, ...] = ()
+    swing_highs: tuple[SwingPoint, ...] = ()
+    swing_lows: tuple[SwingPoint, ...] = ()
+    high_delta_atr: Optional[float] = None
+    low_delta_atr: Optional[float] = None
+    structural_moves_significant: Optional[bool] = None
+    ambiguous_pivot_count: int = 0
+
+
 class LocationKind(str, Enum):
     NEAR_SUPPORT = "near_support"
     NEAR_RESISTANCE = "near_resistance"
@@ -110,6 +162,127 @@ def dow_trend(pivot_highs: Sequence[Pivot], pivot_lows: Sequence[Pivot]) -> DowT
         structure = TrendStructure.SIDEWAYS
     label, bias = _TREND_LABELS[structure]
     return DowTrend(structure, label, bias, (previous_high, last_high), (previous_low, last_low))
+
+
+def normalize_alternating_swings(
+    pivot_highs: Sequence[Pivot], pivot_lows: Sequence[Pivot]
+) -> NormalizedSwings:
+    """Order pivots into alternating legs without guessing same-candle intrabar order."""
+    high_indices = {pivot.index for pivot in pivot_highs}
+    low_indices = {pivot.index for pivot in pivot_lows}
+    ambiguous_indices = high_indices & low_indices
+    events = [
+        SwingPoint(SwingKind.HIGH, pivot.index, pivot.price)
+        for pivot in pivot_highs
+        if pivot.index not in ambiguous_indices
+    ]
+    events.extend(
+        SwingPoint(SwingKind.LOW, pivot.index, pivot.price)
+        for pivot in pivot_lows
+        if pivot.index not in ambiguous_indices
+    )
+    events.sort(key=lambda swing: swing.index)
+
+    normalized: List[SwingPoint] = []
+    for event in events:
+        if not normalized or normalized[-1].kind is not event.kind:
+            normalized.append(event)
+            continue
+        previous = normalized[-1]
+        is_more_extreme = (
+            event.price > previous.price
+            if event.kind is SwingKind.HIGH
+            else event.price < previous.price
+        )
+        if is_more_extreme:
+            normalized[-1] = event
+    return NormalizedSwings(tuple(normalized), len(ambiguous_indices))
+
+
+def _structure_break_label(
+    structure: DowStructureV2Kind,
+    latest_close: float,
+    last_high: SwingPoint,
+    last_low: SwingPoint,
+) -> str:
+    if latest_close > last_high.price:
+        if structure is DowStructureV2Kind.UP:
+            return "Bullish continuation (BOS)"
+        if structure is DowStructureV2Kind.DOWN:
+            return "Possible bullish change of character"
+        return "Bullish structure break"
+    if latest_close < last_low.price:
+        if structure is DowStructureV2Kind.DOWN:
+            return "Bearish continuation (BOS)"
+        if structure is DowStructureV2Kind.UP:
+            return "Possible bearish change of character"
+        return "Bearish structure break"
+    return "No confirmed structure break"
+
+
+def analyze_dow_structure_v2(
+    pivot_highs: Sequence[Pivot],
+    pivot_lows: Sequence[Pivot],
+    *,
+    latest_close: float,
+    atr_value: Optional[float],
+    significance_atr: float = 0.5,
+) -> DowStructureV2:
+    """Classify an alternating confirmed swing sequence and its latest closed-price break."""
+    if significance_atr < 0:
+        raise ValueError("significance_atr must be non-negative.")
+    normalized = normalize_alternating_swings(pivot_highs, pivot_lows)
+    highs = tuple(swing for swing in normalized.swings if swing.kind is SwingKind.HIGH)
+    lows = tuple(swing for swing in normalized.swings if swing.kind is SwingKind.LOW)
+    if len(highs) < 2 or len(lows) < 2:
+        label, bias = _DOW_V2_LABELS[DowStructureV2Kind.UNAVAILABLE]
+        return DowStructureV2(
+            DowStructureV2Kind.UNAVAILABLE,
+            label,
+            bias,
+            "No confirmed structure break",
+            normalized.swings,
+            highs,
+            lows,
+            ambiguous_pivot_count=normalized.ambiguous_pivot_count,
+        )
+
+    previous_high, last_high = highs[-2:]
+    previous_low, last_low = lows[-2:]
+    if last_high.price > previous_high.price and last_low.price > previous_low.price:
+        structure = DowStructureV2Kind.UP
+    elif last_high.price < previous_high.price and last_low.price < previous_low.price:
+        structure = DowStructureV2Kind.DOWN
+    elif last_high.price < previous_high.price and last_low.price > previous_low.price:
+        structure = DowStructureV2Kind.CONTRACTING_RANGE
+    elif last_high.price > previous_high.price and last_low.price < previous_low.price:
+        structure = DowStructureV2Kind.EXPANDING_RANGE
+    else:
+        structure = DowStructureV2Kind.TRANSITION
+
+    break_label = _structure_break_label(structure, latest_close, last_high, last_low)
+
+    high_delta_atr = low_delta_atr = None
+    significant = None
+    if atr_value is not None and atr_value > 0:
+        high_delta_atr = abs(last_high.price - previous_high.price) / atr_value
+        low_delta_atr = abs(last_low.price - previous_low.price) / atr_value
+        significant = high_delta_atr >= significance_atr and low_delta_atr >= significance_atr
+
+    label, bias = _DOW_V2_LABELS[structure]
+    return DowStructureV2(
+        structure,
+        label,
+        bias,
+        break_label,
+        normalized.swings,
+        (previous_high, last_high),
+        (previous_low, last_low),
+        high_delta_atr,
+        low_delta_atr,
+        significant,
+        normalized.ambiguous_pivot_count,
+    )
 
 
 def locate_price(

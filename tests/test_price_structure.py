@@ -4,12 +4,16 @@ import pytest
 
 from god_market_api.models import Bias, Candle
 from god_market_api.price_structure import (
+    DowStructureV2Kind,
     LocationKind,
+    Pivot,
     TrendStructure,
+    analyze_dow_structure_v2,
     detect_candle_patterns,
     dow_trend,
     find_pivots,
     locate_price,
+    normalize_alternating_swings,
     price_action,
 )
 
@@ -76,6 +80,128 @@ def test_dow_trend_labels_match_worksheet_wording():
 def test_dow_trend_unavailable_without_two_swings_each():
     result = dow_trend([], [])
     assert result.structure is TrendStructure.UNAVAILABLE
+    assert result.bias is Bias.UNAVAILABLE
+
+
+# Dow structure v2
+
+
+def test_normalize_alternating_swings_retains_the_more_extreme_same_leg_pivot():
+    normalized = normalize_alternating_swings(
+        pivot_highs=[Pivot(1, 10), Pivot(2, 12), Pivot(5, 14)],
+        pivot_lows=[Pivot(3, 6), Pivot(4, 7), Pivot(6, 9)],
+    )
+
+    assert [(s.kind.value, s.index, s.price) for s in normalized.swings] == [
+        ("high", 2, 12),
+        ("low", 3, 6),
+        ("high", 5, 14),
+        ("low", 6, 9),
+    ]
+    assert normalized.ambiguous_pivot_count == 0
+
+
+def test_normalize_alternating_swings_omits_same_candle_high_low_as_ambiguous():
+    normalized = normalize_alternating_swings(
+        pivot_highs=[Pivot(1, 10), Pivot(3, 12), Pivot(5, 14)],
+        pivot_lows=[Pivot(2, 6), Pivot(3, 5), Pivot(4, 7)],
+    )
+
+    assert [(s.kind.value, s.index) for s in normalized.swings] == [
+        ("high", 1),
+        ("low", 2),
+        ("high", 5),
+    ]
+    assert normalized.ambiguous_pivot_count == 1
+
+
+@pytest.mark.parametrize(
+    ("highs", "lows", "expected", "label", "bias"),
+    [
+        ([Pivot(1, 10), Pivot(3, 12)], [Pivot(2, 5), Pivot(4, 7)],
+         DowStructureV2Kind.UP, "HH - HL (Up Trend)", Bias.BULLISH),
+        ([Pivot(1, 12), Pivot(3, 10)], [Pivot(2, 7), Pivot(4, 5)],
+         DowStructureV2Kind.DOWN, "LL - LH (Down Trend)", Bias.BEARISH),
+        ([Pivot(1, 12), Pivot(3, 10)], [Pivot(2, 5), Pivot(4, 7)],
+         DowStructureV2Kind.CONTRACTING_RANGE, "LH - HL (Contracting Range)", Bias.NEUTRAL),
+        ([Pivot(1, 10), Pivot(3, 12)], [Pivot(2, 7), Pivot(4, 5)],
+         DowStructureV2Kind.EXPANDING_RANGE, "HH - LL (Expanding Range)", Bias.NEUTRAL),
+        ([Pivot(1, 10), Pivot(3, 10)], [Pivot(2, 5), Pivot(4, 7)],
+         DowStructureV2Kind.TRANSITION, "Equal / Transitional Structure", Bias.NEUTRAL),
+    ],
+)
+def test_dow_v2_classifies_the_last_two_alternating_highs_and_lows(
+    highs, lows, expected, label, bias
+):
+    result = analyze_dow_structure_v2(highs, lows, latest_close=8, atr_value=2)
+
+    assert result.structure is expected
+    assert result.label == label
+    assert result.bias is bias
+
+
+def test_dow_v2_distinguishes_continuation_bos_from_possible_change_of_character():
+    bullish_bos = analyze_dow_structure_v2(
+        [Pivot(1, 10), Pivot(3, 12)],
+        [Pivot(2, 5), Pivot(4, 7)],
+        latest_close=13,
+        atr_value=2,
+    )
+    bullish_change = analyze_dow_structure_v2(
+        [Pivot(1, 12), Pivot(3, 10)],
+        [Pivot(2, 7), Pivot(4, 5)],
+        latest_close=11,
+        atr_value=2,
+    )
+    bearish_bos = analyze_dow_structure_v2(
+        [Pivot(1, 12), Pivot(3, 10)],
+        [Pivot(2, 7), Pivot(4, 5)],
+        latest_close=4,
+        atr_value=2,
+    )
+    bearish_change = analyze_dow_structure_v2(
+        [Pivot(1, 10), Pivot(3, 12)],
+        [Pivot(2, 5), Pivot(4, 7)],
+        latest_close=6,
+        atr_value=2,
+    )
+
+    assert bullish_bos.break_label == "Bullish continuation (BOS)"
+    assert bullish_change.break_label == "Possible bullish change of character"
+    assert bearish_bos.break_label == "Bearish continuation (BOS)"
+    assert bearish_change.break_label == "Possible bearish change of character"
+
+
+def test_dow_v2_atr_significance_does_not_change_structure():
+    significant = analyze_dow_structure_v2(
+        [Pivot(1, 10), Pivot(3, 12)],
+        [Pivot(2, 5), Pivot(4, 7)],
+        latest_close=8,
+        atr_value=4,
+        significance_atr=0.5,
+    )
+    minor = analyze_dow_structure_v2(
+        [Pivot(1, 10), Pivot(3, 12)],
+        [Pivot(2, 5), Pivot(4, 7)],
+        latest_close=8,
+        atr_value=10,
+        significance_atr=0.5,
+    )
+
+    assert significant.structure is minor.structure is DowStructureV2Kind.UP
+    assert significant.structural_moves_significant is True
+    assert minor.structural_moves_significant is False
+
+
+def test_dow_v2_is_unavailable_without_two_normalized_swings_of_each_kind():
+    result = analyze_dow_structure_v2(
+        [Pivot(1, 10)],
+        [Pivot(2, 5)],
+        latest_close=7,
+        atr_value=1,
+    )
+
+    assert result.structure is DowStructureV2Kind.UNAVAILABLE
     assert result.bias is Bias.UNAVAILABLE
 
 

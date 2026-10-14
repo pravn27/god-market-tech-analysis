@@ -238,6 +238,63 @@ def test_ema_intermingled_is_neutral():
     assert cell.bias is Bias.NEUTRAL
 
 
+def test_ema_steep_upward_stack_is_green_and_labelled():
+    emas = {5: pad([100, 102, 104, 106]), 13: pad([99, 100.5, 102, 103.5]),
+            26: pad([96, 97.5, 99, 100.5]), 50: pad([92, 94, 96, 98])}
+    cell = ema_cell(pad([107] * 4), emas, T)
+    assert "POC, 5 > 13 > 26" in cell.labels
+    assert "Steep upward EMAs: 5, 13, 26, 50" in cell.labels
+    assert cell.bias is Bias.BULLISH
+    assert cell.values["ema_5_slope_pct"] == pytest.approx(6.0, abs=0.01)
+
+
+def test_ema_steep_downward_stack_is_red_and_labelled():
+    emas = {5: pad([100, 98, 96, 94]), 13: pad([101, 99, 97.5, 96.5]),
+            26: pad([104, 102, 100.5, 99.5]), 50: pad([108, 106, 104, 102])}
+    cell = ema_cell(pad([93] * 4), emas, T)
+    assert "NOC, 5 < 13 < 26" in cell.labels
+    assert "Steep downward EMAs: 5, 13, 26, 50" in cell.labels
+    assert cell.bias is Bias.BEARISH
+
+
+def test_ema_flat_lines_are_labelled_flat_and_colour_follows_pco_state():
+    emas = {5: pad([103] * 4), 13: pad([102] * 4), 26: pad([101] * 4), 50: pad([100] * 4)}
+    cell = ema_cell(pad([99] * 4), emas, T)
+    assert "Flat EMAs: 5, 13, 26, 50" in cell.labels
+    assert "EMAs intermingled" not in cell.labels
+    # Colour follows the 5 > 13 > 26 stack, not the price relation to the 50 EMA.
+    assert cell.bias is Bias.BULLISH
+
+
+def test_ema_intermingled_flat_lines_report_both_states():
+    emas = {5: pad([101] * 4), 13: pad([102] * 4), 26: pad([100] * 4), 50: pad([99] * 4)}
+    cell = ema_cell(pad([101.5] * 4), emas, T)
+    assert "EMAs intermingled" in cell.labels
+    assert "Flat EMAs: 5, 13, 26, 50" in cell.labels
+    assert cell.bias is Bias.NEUTRAL
+
+
+def test_ema_short_group_flat_and_long_group_upward_are_listed_per_line():
+    emas = {5: pad([103] * 4), 13: pad([102] * 4), 26: pad([101] * 4), 50: pad([100] * 4),
+            100: pad([100, 100.5, 100.8, 101]), 150: pad([150, 150.6, 151.2, 151.5]),
+            200: pad([200, 200.6, 201, 201.5])}
+    cell = ema_cell(pad([102] * 4), emas, T)
+    assert "Flat EMAs: 5, 13, 26, 50" in cell.labels
+    assert "Upward EMAs: 100, 150, 200" in cell.labels
+    assert not any(label.startswith("Downward") or label.startswith("Steep") for label in cell.labels)
+    assert cell.values["ema_100_trend"] == "up"
+    assert cell.values["ema_200_trend"] == "up"
+
+
+def test_ema_long_group_downward_is_listed_per_line():
+    emas = {5: pad([103] * 4), 13: pad([102] * 4), 26: pad([101] * 4), 50: pad([100] * 4),
+            100: pad([101, 100.5, 100.2, 100]), 150: pad([152, 151.4, 150.8, 150.2]),
+            200: pad([202, 201.5, 201, 200.5])}
+    cell = ema_cell(pad([102] * 4), emas, T)
+    assert "Downward EMAs: 100, 150, 200" in cell.labels
+    assert cell.values["ema_150_trend"] == "down"
+
+
 # Whole timeframe
 
 

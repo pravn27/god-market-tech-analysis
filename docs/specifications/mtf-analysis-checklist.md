@@ -96,6 +96,8 @@ Double/Triple Screen decisions.
 | `rsi_near_50_band` | 45–55 | "Near 50". |
 | `bb_near_median_fraction` | 0.10 | Price within 10% of band width from the basis is "near median". |
 | `bb_flat_tolerance` | 0.5% | Band movement below this percentage over `slope_lookback` is "flat". |
+| `ema_flat_tolerance` | 0.5% | EMA 5/13/26/50 movement at or below this percentage over `slope_lookback` is "flat". |
+| `ema_steep_tolerance` | 1.5% | EMA 5/13/26/50 movement at or above this percentage over `slope_lookback` (in the stack's direction) is "steep". |
 | `sr_proximity_atr` | 1.0 | Price within 1 ATR of a swing level is "near" it. |
 | `macd_near_zero_fraction` | 0.10 | MACD within 10% of its recent 50-candle absolute range is "near zero line". |
 | `dmi_contracting_lookback` | 3 | `abs(+DI − −DI)` lower than 3 candles earlier is "contracting". |
@@ -209,7 +211,14 @@ Prefixed with `Raising` / `Falling` (compared with `slope_lookback`), e.g. `Rais
 - Price relation for each of 5, 13, 26, 50 (and 100/150/200 where available): `Price > 5`, `Price < 50`, …
 - Stack: `POC, 5 > 13 > 26` / `NOC, 5 < 13 < 26`; long stack `POC, 100 > 150 > 200` / `NOC, 100 < 150 < 200`.
 - Crossover: `5 EMA PCO with 13 / 26 EMA` or `NCO` within the last 3 periods (SMM decision sheet).
-- Bias: bullish if price > 50 EMA and 5 > 13 > 26; bearish if price < 50 EMA and 5 < 13 < 26; otherwise neutral (`EMAs intermingled`).
+- Colour (bias): bullish (green) when the 5 EMA is above 13 and 26 (`POC` / PCO state, 5 > 13 > 26); bearish (red) when below (`NOC` / NCO state, 5 < 13 < 26); otherwise neutral. Price relative to the 50 EMA is shown as a label but does not change the colour.
+- Stack: `EMAs intermingled` when 5, 13 and 26 are not in a PCO or NCO order.
+- Trend, classified line by line for each of 5, 13, 26, 50, 100, 150 and 200. The slope is the percentage change of that EMA over `slope_lookback` candles:
+  - `Flat` when the absolute slope is at most `ema_flat_tolerance` (0.5%).
+  - `Upward` / `Downward` when the slope is beyond the flat tolerance but below the steep tolerance.
+  - `Steep upward` / `Steep downward` when the slope is at least `ema_steep_tolerance` (1.5%) in that direction.
+- Labels group the periods by trend, for example `Flat EMAs: 5, 13, 26`, `Upward EMAs: 100, 150, 200`, `Steep downward EMAs: 5`. A period with no slope (insufficient candles) is left out of the groups.
+- Values include `ema_<period>_slope_pct` and `ema_<period>_trend` (`flat`, `up`, `down`, `steep_up`, `steep_down`) for each period.
 
 ### 4. Screen signals and decisions (SMM Double / Triple Screen)
 

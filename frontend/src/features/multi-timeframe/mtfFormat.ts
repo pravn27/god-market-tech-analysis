@@ -16,6 +16,18 @@ export const biasColor: Record<Bias, string> = {
   unavailable: 'warning',
 }
 
+// EMA price-relation labels such as "Price > 26" (green) and "Price < 26" (red), other labels keep the cell bias colour.
+const emaPriceRelation = /^Price ([<>]) \d+$/
+
+export function labelColor(rowId: string, label: string, bias: Bias): string {
+  if (rowId === 'emas') {
+    const relation = emaPriceRelation.exec(label)?.[1]
+    if (relation === '>') return 'success'
+    if (relation === '<') return 'error'
+  }
+  return biasColor[bias]
+}
+
 export const signalColor: Record<ScreenSignal, string> = {
   BUY: 'success',
   SELL: 'error',

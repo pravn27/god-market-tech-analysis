@@ -41,6 +41,8 @@ class ChecklistThresholds:
     rsi_near_50_high: float = 55.0
     bb_near_median_fraction: float = 0.10
     bb_flat_tolerance: float = 0.005
+    ema_flat_tolerance: float = 0.005
+    ema_steep_tolerance: float = 0.015
     sr_proximity_atr: float = 1.0
     macd_near_zero_fraction: float = 0.10
     macd_zero_range_window: int = 50
@@ -405,6 +407,46 @@ def stochastic_cell(k: Series, d: Series, t: ChecklistThresholds) -> ChecklistCe
     )
 
 
+def _ema_slope(series: Series, t: ChecklistThresholds) -> Optional[float]:
+    """Fractional change of an EMA over ``slope_lookback`` candles; None when unavailable."""
+    now, before = _at(series), _at(series, t.slope_lookback)
+    if now is None or before is None or before == 0:
+        return None
+    return (now - before) / abs(before)
+
+
+EMA_TREND_PERIODS = (5, 13, 26, 50, 100, 150, 200)
+
+_EMA_TREND_LABELS = {
+    "flat": "Flat EMAs",
+    "up": "Upward EMAs",
+    "down": "Downward EMAs",
+    "steep_up": "Steep upward EMAs",
+    "steep_down": "Steep downward EMAs",
+}
+
+
+def _ema_trend(slope: float, t: ChecklistThresholds) -> str:
+    """Classify one EMA line by its slope over ``slope_lookback`` candles."""
+    if abs(slope) <= t.ema_flat_tolerance:
+        return "flat"
+    if slope >= t.ema_steep_tolerance:
+        return "steep_up"
+    if slope <= -t.ema_steep_tolerance:
+        return "steep_down"
+    return "up" if slope > 0 else "down"
+
+
+def _ema_trend_labels(trends: Mapping[int, str]) -> List[str]:
+    """Group EMA periods by trend, e.g. ``Flat EMAs: 5, 13, 26``."""
+    labels = []
+    for trend, name in _EMA_TREND_LABELS.items():
+        periods = [str(period) for period, value in trends.items() if value == trend]
+        if periods:
+            labels.append(f"{name}: {', '.join(periods)}")
+    return labels
+
+
 def ema_cell(closes: Sequence[float], emas: Mapping[int, Series], t: ChecklistThresholds) -> ChecklistCell:
     close = closes[-1]
     latest = {period: _at(series) for period, series in emas.items()}
@@ -416,7 +458,7 @@ def ema_cell(closes: Sequence[float], emas: Mapping[int, Series], t: ChecklistTh
         for p in t.indicators.ema_periods
         if latest.get(p) is not None
     ]
-    e5, e13, e26, e50 = (latest[p] for p in required)
+    e5, e13, e26 = (latest[p] for p in (5, 13, 26))
     poc = e5 > e13 > e26
     noc = e5 < e13 < e26
     if poc:
@@ -425,6 +467,9 @@ def ema_cell(closes: Sequence[float], emas: Mapping[int, Series], t: ChecklistTh
         labels.append("NOC, 5 < 13 < 26")
     else:
         labels.append("EMAs intermingled")
+    slopes = {p: _ema_slope(emas[p], t) for p in EMA_TREND_PERIODS if p in emas}
+    trends = {p: _ema_trend(s, t) for p, s in slopes.items() if s is not None}
+    labels.extend(_ema_trend_labels(trends))
     e100, e150, e200 = latest.get(100), latest.get(150), latest.get(200)
     if None not in (e100, e150, e200):
         if e100 > e150 > e200:
@@ -436,14 +481,14 @@ def ema_cell(closes: Sequence[float], emas: Mapping[int, Series], t: ChecklistTh
         if cross:
             labels.append(f"5 EMA {'PCO' if cross[0] == 'up' else 'NCO'} with {slow} EMA")
 
-    if close > e50 and poc:
-        bias = Bias.BULLISH
-    elif close < e50 and noc:
-        bias = Bias.BEARISH
-    else:
-        bias = Bias.NEUTRAL
+    # Colour follows the PCO / NCO state of the 5 > 13 > 26 stack; intermingled lines stay neutral.
+    bias = Bias.BULLISH if poc else Bias.BEARISH if noc else Bias.NEUTRAL
     values = {f"ema_{p}": _round(latest.get(p)) for p in t.indicators.ema_periods}
     values["close"] = _round(close)
+    for p in EMA_TREND_PERIODS:
+        slope = slopes.get(p)
+        values[f"ema_{p}_slope_pct"] = _round(slope * 100, 2) if slope is not None else None
+        values[f"ema_{p}_trend"] = trends.get(p)
     return ChecklistCell(labels=labels, bias=bias, values=values, rule_ids=["ema"])
 
 

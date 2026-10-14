@@ -15,6 +15,7 @@ export default function App() {
   const toggleTheme = useUiStore((state) => state.toggleTheme)
   const isDark = themeMode === 'dark'
   const themeLabel = isDark ? 'Switch to light theme' : 'Switch to dark theme'
+  const contentClassName = location.pathname === '/multi-timeframe' ? 'app-content app-content-full' : 'app-content'
 
   return (
     <Layout className="app-shell">
@@ -50,7 +51,7 @@ export default function App() {
           />
         </Tooltip>
       </Header>
-      <Content className="app-content">
+      <Content className={contentClassName}>
         <Routes>
           <Route path="/global-market" element={<GlobalMarketPage />} />
           <Route path="/multi-timeframe" element={<MultiTimeframePage />} />

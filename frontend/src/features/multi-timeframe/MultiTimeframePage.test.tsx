@@ -94,7 +94,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-test('defaults to the first commodity instrument and renders decisions, eight timeframe columns, and manual rows', async () => {
+test('defaults to the first commodity instrument, collapses Super TIDE, and renders decisions and manual rows', async () => {
   const fetchMock = mockApi()
   renderPage()
 
@@ -107,8 +107,10 @@ test('defaults to the first commodity instrument and renders decisions, eight ti
   expect(within(decisions).getByText(/not financial advice/)).toBeInTheDocument()
 
   const matrix = screen.getByRole('region', { name: 'Multi-timeframe checklist' })
-  expect(within(matrix).getAllByRole('columnheader').filter((header) => /^(Monthly|Weekly|Daily|4H|1H|15m)/.test(header.textContent ?? ''))).toHaveLength(8)
-  expect(within(matrix).getAllByText('Manual check')).toHaveLength(8)
+  expect(within(matrix).getAllByRole('columnheader').filter((header) => /^(Monthly|Weekly|Daily|4H|1H|15m)/.test(header.textContent ?? ''))).toHaveLength(6)
+  expect(within(matrix).queryByText('Monthly')).not.toBeInTheDocument()
+  expect(within(matrix).getByRole('button', { name: 'Expand Super TIDE column' })).toHaveAttribute('aria-expanded', 'false')
+  expect(within(matrix).getAllByText('Manual check')).toHaveLength(6)
   expect(within(matrix).getAllByText('Live candle')).toHaveLength(1)
   expect(within(matrix).getAllByText('Unavailable').length).toBeGreaterThan(0)
   expect(screen.getByText('1 timeframe note')).toBeInTheDocument()
@@ -121,6 +123,20 @@ test('defaults to the first commodity instrument and renders decisions, eight ti
     '4. Double & Triple Screen decision',
     '5. Concepts / Setups / Confirmation',
   ])
+})
+
+test('expands and collapses the Super TIDE column on demand', async () => {
+  mockApi()
+  renderPage()
+
+  const matrix = await screen.findByRole('region', { name: 'Multi-timeframe checklist' })
+  fireEvent.click(within(matrix).getByRole('button', { name: 'Expand Super TIDE column' }))
+  expect(within(matrix).getByText('Monthly')).toBeInTheDocument()
+  expect(within(matrix).getAllByText('Manual check')).toHaveLength(8)
+
+  fireEvent.click(within(matrix).getByRole('button', { name: 'Collapse Super TIDE column' }))
+  expect(within(matrix).queryByText('Monthly')).not.toBeInTheDocument()
+  expect(within(matrix).getAllByText('Manual check')).toHaveLength(6)
 })
 
 test('opens the detail drawer with values when a cell is clicked', async () => {

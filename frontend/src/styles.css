@@ -12,6 +12,7 @@
   --neutral-gradient: linear-gradient(135deg, rgba(153, 153, 153, 0.1) 0%, rgba(153, 153, 153, 0.02) 100%);
   --surface-bg: #ffffff;
   --section-bg: #f0f5ff;
+  --header-bg: #f0f5ff;
   --layer-divider: #8c8c8c;
   background: var(--app-bg);
   font-synthesis: none;
@@ -31,6 +32,7 @@
   --neutral-gradient: linear-gradient(135deg, rgba(153, 153, 153, 0.12) 0%, rgba(153, 153, 153, 0.04) 100%);
   --surface-bg: #141414;
   --section-bg: #111d2c;
+  --header-bg: #11263c;
   --layer-divider: #595959;
 }
 
@@ -135,12 +137,12 @@ body { background: var(--app-bg); }
 .mtf-col-collapsed { width: 40px; }
 .mtf-matrix th, .mtf-matrix td { border-bottom: 1px solid var(--surface-border); border-inline-end: 1px solid var(--surface-border); padding: 10px 12px; text-align: start; vertical-align: top; }
 .mtf-matrix tbody tr:hover td, .mtf-matrix tbody tr:hover th { background: var(--row-striped); }
-.mtf-matrix thead th { background: var(--surface-bg); position: sticky; z-index: 2; }
+.mtf-matrix thead th { background: var(--header-bg); position: sticky; z-index: 2; }
 .mtf-matrix thead tr:first-child th { height: 52px; top: 0; }
 .mtf-matrix thead tr:nth-child(2) th { top: 52px; }
 .mtf-matrix td { min-width: 180px; }
 .mtf-sticky { background: var(--surface-bg); inset-inline-start: 0; position: sticky; z-index: 1; }
-.mtf-matrix thead .mtf-sticky { z-index: 3; }
+.mtf-matrix thead .mtf-sticky { background: var(--surface-bg); z-index: 3; }
 .mtf-row-header { font-weight: 600; min-width: 240px; width: 240px; }
 .mtf-layer-header { font-size: 14px; text-align: center !important; }
 .mtf-layer-indicator { display: block; font-size: 12px; font-weight: 400; opacity: 0.7; }
@@ -151,8 +153,9 @@ body { background: var(--app-bg); }
 .mtf-matrix .mtf-layer-collapsed .mtf-layer-toggle { padding-inline: 0; width: 100%; }
 .mtf-layer-collapsed-name { display: block; font-size: 12px; font-weight: 700; margin-top: 8px; transform: rotate(180deg); writing-mode: vertical-rl; }
 .mtf-matrix .mtf-collapsed-col { background: var(--row-striped); padding: 0; }
+.mtf-tf-header { text-align: center !important; }
 .mtf-tf-name { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
-.mtf-tf-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.mtf-tf-tags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .mtf-section-row th { background: var(--section-bg); border-inline-start: 4px solid #1890ff; font-size: 13px; font-weight: 700; inset-inline-start: 0; letter-spacing: 0.02em; padding: 8px 12px; position: sticky; text-transform: uppercase; }
 .mtf-cell { background: transparent; border: 0; border-radius: 6px; cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px; padding: 4px; text-align: start; width: 100%; }
 .mtf-cell:hover { background: var(--row-striped); }

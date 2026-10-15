@@ -175,6 +175,8 @@ Append `Bands are Flat` or `Bands Expanding` / `Bands Contracting`. Values: uppe
 
 Add `Crossing above 60` / `Crossing below 40` / `Crossing above 40` / `Crossing below 60` when it happened within `recent_crossover_periods`.
 
+Every cell also shows the current value as `RSI <value>` rounded to two decimals (the same number stored in `values.rsi`).
+
 ### 3. DMI (PAPA)
 
 `+DI > -DI` (bullish) or `-DI > +DI` (bearish), plus `Contracting` / `Expanding` from the DI spread, plus `PCO` / `NCO` when +DI crossed −DI within `recent_crossover_periods`.

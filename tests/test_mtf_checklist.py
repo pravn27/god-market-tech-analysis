@@ -90,6 +90,7 @@ def test_bb_unavailable_without_bands():
 def test_rsi_zones(value, label, bias):
     cell = rsi_cell(pad([value] * 4), T)
     assert cell.labels[0] == label
+    assert cell.labels[1] == f"RSI {value:.2f}"
     assert cell.bias is bias
 
 

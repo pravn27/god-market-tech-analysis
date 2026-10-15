@@ -229,7 +229,7 @@ def rsi_cell(rsi: Series, t: ChecklistThresholds) -> ChecklistCell:
     else:
         label = f"Swing zone (40 - 60), {'Above' if value > 50 else 'Below'} 50"
         bias = Bias.NEUTRAL
-    labels = [label]
+    labels = [label, f"RSI {value:.2f}"]
     periods = t.recent_crossover_periods
     for level, direction, text in (
         (60, "up", "Crossing above 60"),

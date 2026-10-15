@@ -1,9 +1,10 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import type { AnalysisTimeframe, MultiTimeframeAnalysis, MtfInstrumentCatalog } from '../../api/client'
+import { FakeWebSocket } from '../../test/fakeWebSocket'
 import MultiTimeframePage from './MultiTimeframePage'
 
 const catalog: MtfInstrumentCatalog = {
@@ -90,8 +91,28 @@ function renderPage(path = '/multi-timeframe') {
   )
 }
 
+beforeEach(() => {
+  FakeWebSocket.reset()
+  vi.stubGlobal('WebSocket', FakeWebSocket)
+})
+
 afterEach(() => {
   vi.unstubAllGlobals()
+})
+
+test('shows a paused-updates banner when the live socket drops, and the live tag returns when it reopens', async () => {
+  mockApi()
+  renderPage()
+  await screen.findByText(/NATGAS · PEPPERSTONE:NATGAS/)
+  const socket = FakeWebSocket.instances[0]
+
+  act(() => socket.open())
+  expect(screen.getByLabelText('Live updates: Live')).toBeInTheDocument()
+  expect(screen.queryByText('Live updates are paused')).not.toBeInTheDocument()
+
+  act(() => socket.drop())
+  expect(screen.getByText('Live updates are paused')).toBeInTheDocument()
+  expect(screen.getByLabelText('Live updates: Reconnecting')).toBeInTheDocument()
 })
 
 test('defaults to the first commodity instrument, collapses Super TIDE, and renders decisions and manual rows', async () => {

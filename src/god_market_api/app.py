@@ -1,8 +1,9 @@
 """FastAPI application for the local, read-only MCP API service."""
 
+import asyncio
 from typing import Literal, Optional
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from .desktop_bridge import TradingViewDesktopWatchlistReader
 from .global_market import GlobalMarketLiveSnapshotProvider, GlobalMarketSnapshotProvider
@@ -17,6 +18,7 @@ from .models import (
     ServiceHealth,
 )
 from .mtf_analysis import MultiTimeframeAnalysisService, UnknownInstrumentError
+from .mtf_live import MtfLiveHub, wait_for_client_disconnect
 from .mtf_orchestrator import MultiTimeframeContextOrchestrator
 from .oauth import OfficialMCPOAuthCoordinator
 from .providers import ChartContextProvider, DataSourceUnavailableError, OfficialMCPProvider
@@ -29,11 +31,13 @@ def create_app(
     global_market_provider: Optional[GlobalMarketSnapshotProvider] = None,
     desktop_watchlist_reader: Optional[TradingViewDesktopWatchlistReader] = None,
     mtf_analysis: Optional[MultiTimeframeAnalysisService] = None,
+    mtf_live: Optional[MtfLiveHub] = None,
 ) -> FastAPI:
     oauth_coordinator = oauth or OfficialMCPOAuthCoordinator()
     active_provider = provider or OfficialMCPProvider(tool_caller=oauth_coordinator)
     active_mtf_orchestrator = mtf_orchestrator or MultiTimeframeContextOrchestrator(active_provider)
     active_mtf_analysis = mtf_analysis or MultiTimeframeAnalysisService(active_mtf_orchestrator)
+    active_mtf_live = mtf_live or MtfLiveHub(active_mtf_analysis, active_mtf_orchestrator)
     active_desktop_watchlist_reader = desktop_watchlist_reader or TradingViewDesktopWatchlistReader.from_environment()
     active_global_market_provider = global_market_provider or GlobalMarketLiveSnapshotProvider(
         active_provider,
@@ -106,6 +110,40 @@ def create_app(
             return await active_mtf_analysis.analyze(symbol, force_refresh=refresh_mode == "force_refresh")
         except UnknownInstrumentError as error:
             raise HTTPException(status_code=422, detail=str(error))
+
+    @app.websocket("/api/v1/mtf-analysis/{symbol}/live")
+    async def mtf_analysis_live(websocket: WebSocket, symbol: str) -> None:
+        normalized = symbol.strip().upper()
+        if not active_mtf_analysis.is_known(normalized):
+            await websocket.close(code=1008, reason="Unknown instrument.")
+            return
+        await websocket.accept()
+        queue = active_mtf_live.subscribe(normalized)
+        watcher = asyncio.create_task(wait_for_client_disconnect(websocket))
+        getter: Optional[asyncio.Task] = None
+        try:
+            while not watcher.done():
+                getter = asyncio.create_task(queue.get())
+                done, _ = await asyncio.wait(
+                    {getter, watcher},
+                    timeout=active_mtf_live.heartbeat_seconds,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if watcher.done():
+                    break
+                if getter in done:
+                    envelope = getter.result()
+                else:
+                    getter.cancel()
+                    envelope = active_mtf_live.heartbeat(normalized)
+                await websocket.send_json(envelope.model_dump(mode="json"))
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+        finally:
+            watcher.cancel()
+            if getter is not None and not getter.done():
+                getter.cancel()
+            active_mtf_live.unsubscribe(normalized, queue)
 
     @app.get(
         "/api/v1/global-market-sentiment",

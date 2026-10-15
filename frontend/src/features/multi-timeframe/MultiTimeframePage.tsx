@@ -7,6 +7,7 @@ import ChecklistMatrix, { type MatrixSelection } from './ChecklistMatrix'
 import DecisionStrip from './DecisionStrip'
 import MatrixDetailDrawer from './MatrixDetailDrawer'
 import { formatTimestamp } from './mtfFormat'
+import { useMtfLive, type LiveStatus } from './useMtfLive'
 import { useMtfAnalysis, useMtfInstruments } from './useMultiTimeframe'
 
 const completenessColor = {
@@ -14,6 +15,12 @@ const completenessColor = {
   partial: 'warning',
   unavailable: 'error',
 } as const
+
+const liveTag: Record<LiveStatus, { color: string; label: string }> = {
+  connecting: { color: 'default', label: 'Connecting' },
+  live: { color: 'success', label: 'Live' },
+  reconnecting: { color: 'warning', label: 'Reconnecting' },
+}
 
 export default function MultiTimeframePage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -23,9 +30,11 @@ export default function MultiTimeframePage() {
   const requested = searchParams.get('symbol')?.toUpperCase() ?? null
   const symbol = catalog ? (requested && knownSymbols.has(requested) ? requested : catalog.default_symbol) : null
   const analysis = useMtfAnalysis(symbol)
+  const live = useMtfLive(symbol)
   const [selection, setSelection] = useState<MatrixSelection | null>(null)
   const data = analysis.data
   const error = instruments.error ?? analysis.error ?? analysis.refreshError
+  const shownAt = live.lastUpdate?.toISOString() ?? data?.requested_at ?? null
 
   return (
     <section aria-labelledby="mtf-heading" className="market-dashboard mtf-page">
@@ -90,6 +99,16 @@ export default function MultiTimeframePage() {
 
         {error && <Alert type="error" showIcon title="Multi-timeframe analysis is unavailable" description={error.message} />}
 
+        {data && live.status === 'reconnecting' && (
+          <Alert
+            type="warning"
+            showIcon
+            title="Live updates are paused"
+            description={`Showing the last update from ${formatTimestamp(shownAt ?? data.requested_at)}. Reconnecting automatically; use Refresh Data to fetch now.`}
+          />
+        )}
+        {data && live.liveError && <Alert type="info" showIcon title="Live refresh note" description={live.liveError} />}
+
         {symbol && analysis.isPending && (
           <Card><Skeleton active paragraph={{ rows: 12 }} aria-label="Loading multi-timeframe analysis" /></Card>
         )}
@@ -101,6 +120,9 @@ export default function MultiTimeframePage() {
                 {data.display_name} · {data.symbol} · calculated {formatTimestamp(data.requested_at)} · profile {data.profile_version}
               </Typography.Text>
               <Tag color={completenessColor[data.completeness]}>{data.completeness.toUpperCase()}</Tag>
+              <Tag color={liveTag[live.status].color} aria-label={`Live updates: ${liveTag[live.status].label}`}>
+                {liveTag[live.status].label}
+              </Tag>
             </div>
             {data.symbol === 'NSE:INDIAVIX' && (
               <Alert

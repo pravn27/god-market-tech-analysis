@@ -131,6 +131,9 @@ class MultiTimeframeAnalysisService:
     def catalog(self) -> MtfInstrumentCatalog:
         return self._catalog
 
+    def is_known(self, symbol: str) -> bool:
+        return symbol.strip().upper() in self._symbols
+
     async def analyze(self, symbol: str, *, force_refresh: bool = False) -> MultiTimeframeAnalysis:
         normalized = symbol.strip().upper()
         if normalized not in self._symbols:

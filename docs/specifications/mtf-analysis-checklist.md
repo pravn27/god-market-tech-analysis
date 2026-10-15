@@ -359,12 +359,44 @@ The previous snapshot (`PS_DailyWatch_Favourite`, 32 NSE instruments, recorded 2
 ## UI
 
 - New primary navigation item **Multi-Timeframe** at `/multi-timeframe`, next to **Global Market**; same header, theme switcher, and footer.
-- Controls: searchable instrument dropdown grouped by the `PS_Commodity` sections (default NATGAS, `PEPPERSTONE:NATGAS`), last-updated time, Refresh. The selected symbol is kept in the URL (`?symbol=PEPPERSTONE:NATGAS`).
+- Controls: searchable instrument dropdown grouped by the `PS_Commodity` sections (default NATGAS, `PEPPERSTONE:NATGAS`), last-updated time, live status tag (see Live updates), Refresh. The selected symbol is kept in the URL (`?symbol=PEPPERSTONE:NATGAS`).
 - Headline strip: Double Screen (Tide + Wave) and Triple Screen decisions with the disclaimer.
 - Matrix: sticky checklist column; grouped column headers per layer with timeframe sub-columns; each cell shows compact tags coloured by bias (bullish green, bearish red, neutral grey, unavailable dashed); manual rows show a muted `Manual check` tag.
 - Per-timeframe header shows source, freshness badge, and `Live candle`.
 - Clicking a cell opens a drawer with raw values, rule wording, and candle timestamps.
 - Responsive: horizontal scroll for the matrix on narrow screens; keyboard focusable cells; light/dark theme via existing tokens.
+
+## Live updates (WebSocket, protocol v1)
+
+Decided 2026-10-15: live means a checklist push when each timeframe's candle closes, plus a refresh of candles still forming while their session is open. The official TradingView MCP is tool-call based with no streaming-price feed, so the backend pushes what it fetches itself. Nothing uses TradingView's internal chart WebSocket.
+
+**Endpoint:** `GET /api/v1/mtf-analysis/{symbol}/live` (WebSocket). Unknown instruments are refused with close code 1008 before the socket is accepted.
+
+**Envelope** (`version` = 1), one JSON object per message:
+
+| Field | Meaning |
+| --- | --- |
+| `type` | `snapshot` (first message, current analysis), `update` (new analysis), `heartbeat` (no analysis), `error` (refresh failed; the message says so) |
+| `reason` | `subscribed`, `candle_close` (at least one timeframe got a new candle), or `forming_refresh` |
+| `closed_timeframes` | Timeframes whose candle closed since the previous message |
+| `analysis` | Same shape as `GET /api/v1/mtf-analysis/{symbol}`; present for `snapshot` and `update` |
+| `sent_at`, `symbol`, `error` | Server time, normalised symbol, error text when `type` is `error` |
+
+**Refresh schedule** (one loop per symbol, shared by every open dashboard):
+
+| Setting | Default | Meaning |
+| --- | ---: | --- |
+| `forming_interval` | 60 s | A candle still forming is re-fetched this often; the refresh is pulled forward to its close. |
+| `retry_interval` | 60 s | After a candle closes but before the source publishes the next one, retry at this interval. |
+| `retry_limit` | 5 | Number of retries before switching to the idle interval. |
+| `idle_interval` | 10 min | Slow poll until a new candle appears (e.g. overnight, or after a weekend). |
+| heartbeat | 30 s | Sent when nothing else was sent in the last 30 seconds, so proxies and the browser see a live socket. |
+
+Refreshes bypass the cache for the timeframes that are due (`force_refresh`); all other timeframes are read from the cache as usual. Every refresh still goes through the configured source (official MCP primary, Desktop fallback, per ADR-002).
+
+**Cost:** each forming-candle cycle re-fetches every timeframe that is still forming. For a 24-hour CFD such as `PEPPERSTONE:NATGAS` that is usually four or more calls per minute while a dashboard is open, and each cycle can take tens of seconds on the source. Watch the source's rate limits before raising the subscriber count or lowering `forming_interval`.
+
+**Browser behaviour:** the page connects when an instrument is selected and writes each `snapshot` or `update` into the same cache entry the page renders from, so the matrix updates without a refetch. A status tag shows `Connecting`, `Live` or `Reconnecting`. On a dropped socket it reconnects with exponential backoff (1 s, doubling, capped at 30 s). When no message arrives for 90 seconds the socket is treated as dead and reconnected. While reconnecting, a warning shows the time of the last update; `Refresh Data` still fetches on demand.
 
 ## Commands
 

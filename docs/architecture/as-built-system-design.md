@@ -75,7 +75,7 @@ The backend never changes TradingView charts, watchlists or layouts.
 
 | Target design item | As-built status |
 | --- | --- |
-| WebSocket live updates to the dashboard | Not built. The UI polls through TanStack Query. |
+| WebSocket live updates to the dashboard | Built for the multi-timeframe checklist only (`/api/v1/mtf-analysis/{symbol}/live`, protocol v1; see [checklist spec](../specifications/mtf-analysis-checklist.md#live-updates-websocket-protocol-v1)). Global Market still uses TanStack Query. Rule-evaluation events are not built. |
 | Local configuration and history store (SQLite or similar) | Not built. Cache is in memory and resets on restart. |
 | Generic setup rules engine and setup status machine (`Data unavailable` to `Confirmed`) | Not built. The checklist and screens are fixed rules for the SMM method. |
 | Monitor, state transitions, alert debounce | Not built. |
@@ -552,7 +552,7 @@ flowchart TD
     APPC --> STORE["state/uiStore.ts<br/>zustand persist 'god-market-ui'<br/>themeMode"]
 ```
 
-The MTF page has no WebSocket and no polling. The analysis query is keyed by symbol. The instruments catalogue uses `staleTime: Infinity`. A refresh calls `getMtfAnalysis(symbol, 'force_refresh')` and writes the result into the query cache. The Global Market query is keyed by timeframe. The instrument dropdown is grouped by section (`INTERNATIONAL - STUDY, TA ANALYSIS` and `INDIA MCX`), and the default is `PEPPERSTONE:NATGAS`.
+The MTF page opens one WebSocket per selected symbol (`useMtfLive`) and writes each update into the analysis query cache. Reconnect uses exponential backoff and a 90-second silence watch. The analysis query is keyed by symbol. The instruments catalogue uses `staleTime: Infinity`. A refresh calls `getMtfAnalysis(symbol, 'force_refresh')` and writes the result into the query cache. The Global Market query is keyed by timeframe. The instrument dropdown is grouped by section (`INTERNATIONAL - STUDY, TA ANALYSIS` and `INDIA MCX`), and the default is `PEPPERSTONE:NATGAS`.
 
 ### 3.9 API contract
 

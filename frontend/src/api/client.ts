@@ -139,6 +139,29 @@ export function getMtfAnalysis(
   return getJson<MultiTimeframeAnalysis>(`/mtf-analysis/${encodeURIComponent(symbol)}?${query}`, signal)
 }
 
+export type MtfLiveMessageType = 'snapshot' | 'update' | 'heartbeat' | 'error'
+
+/** One message on the live socket (protocol version 1); `analysis` is set for snapshot and update. */
+export interface MtfLiveEnvelope {
+  version: number
+  type: MtfLiveMessageType
+  symbol: string
+  sent_at: string
+  reason: 'subscribed' | 'candle_close' | 'forming_refresh' | null
+  closed_timeframes: AnalysisTimeframe[]
+  analysis: MultiTimeframeAnalysis | null
+  error: string | null
+}
+
+/** WebSocket URL for the live checklist feed, derived from the same base as the HTTP calls. */
+export function mtfLiveUrl(symbol: string): string {
+  const url = new URL(apiBaseUrl, window.location.href)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  url.pathname = `${url.pathname.replace(/\/$/, '')}/mtf-analysis/${encodeURIComponent(symbol)}/live`
+  url.search = ''
+  return url.toString()
+}
+
 export async function getGlobalMarketSentiment(
   timeframe = 'daily',
   signal?: AbortSignal,

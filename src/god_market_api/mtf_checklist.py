@@ -159,37 +159,47 @@ def bollinger_cell(
     basis: Series,
     lower: Series,
     t: ChecklistThresholds,
+    *,
+    forming: bool = False,
 ) -> ChecklistCell:
+    """Bollinger state. Touch and band-direction tests use the signal candle: the last closed candle
+    when ``forming`` is true (the latest candle is still changing), otherwise the latest candle."""
     rule = "bb"
     u, m, l = _at(upper), _at(basis), _at(lower)
     lookback = t.slope_lookback
     u_prev, l_prev = _at(upper, lookback), _at(lower, lookback)
-    if None in (u, m, l, u_prev, l_prev):
-        return _unavailable(_needs(t.indicators.bb_period + lookback), rule)
+    shift = 1 if forming else 0
+    signal = len(upper) - 1 - shift
+    if None in (u, m, l, u_prev, l_prev) or signal - lookback < 0:
+        return _unavailable(_needs(t.indicators.bb_period + lookback + shift), rule)
+    if upper[signal] is None or lower[signal] is None or upper[signal - lookback] is None or lower[signal - lookback] is None:
+        return _unavailable(_needs(t.indicators.bb_period + lookback + shift), rule)
 
     def change(now: float, before: float) -> float:
         return (now - before) / abs(before) if before else 0.0
 
-    upper_expanding = change(u, u_prev) > t.bb_flat_tolerance
-    lower_expanding = -change(l, l_prev) > t.bb_flat_tolerance
-    upper_flat = abs(change(u, u_prev)) <= t.bb_flat_tolerance
-    lower_flat = abs(change(l, l_prev)) <= t.bb_flat_tolerance
+    s_upper, s_lower = upper[signal], lower[signal]
+    s_upper_prev, s_lower_prev = upper[signal - lookback], lower[signal - lookback]
+    upper_expanding = change(s_upper, s_upper_prev) > t.bb_flat_tolerance
+    lower_expanding = -change(s_lower, s_lower_prev) > t.bb_flat_tolerance
+    upper_flat = abs(change(s_upper, s_upper_prev)) <= t.bb_flat_tolerance
+    lower_flat = abs(change(s_lower, s_lower_prev)) <= t.bb_flat_tolerance
     recent = range(t.recent_crossover_periods)
     upper_touched = any(
-        _at(upper, k) is not None and highs[len(highs) - 1 - k] >= _at(upper, k) for k in recent
+        upper[signal - k] is not None and highs[signal - k] >= upper[signal - k] for k in recent
     )
     lower_touched = any(
-        _at(lower, k) is not None and lows[len(lows) - 1 - k] <= _at(lower, k) for k in recent
+        lower[signal - k] is not None and lows[signal - k] <= lower[signal - k] for k in recent
     )
     close, width = closes[-1], u - l
 
-    if highs[-1] >= u and upper_expanding:
+    if highs[signal] >= s_upper and upper_expanding:
         labels, bias, rule = ["UBBC, BB Expands"], Bias.BULLISH, "bb.ubbc"
-    elif lows[-1] <= l and lower_expanding:
+    elif lows[signal] <= s_lower and lower_expanding:
         labels, bias, rule = ["LBBC, BB Expands"], Bias.BEARISH, "bb.lbbc"
-    elif upper_touched and not upper_expanding:
+    elif upper_touched and upper_flat:
         labels, bias, rule = ["UBBC Failure, BKT"], Bias.BEARISH, "bb.bkt"
-    elif lower_touched and not lower_expanding:
+    elif lower_touched and lower_flat:
         labels, bias, rule = ["LBBC Failure, BKP"], Bias.BULLISH, "bb.bkp"
     elif abs(close - m) <= t.bb_near_median_fraction * width:
         labels, bias, rule = ["Price is Near Median"], Bias.NEUTRAL, "bb.median"
@@ -198,8 +208,11 @@ def bollinger_cell(
     else:
         labels, bias, rule = ["Price is Below Median"], Bias.BEARISH, "bb.median"
 
+    # Total width is judged on the latest candle; each side is judged on the signal candle.
     width_prev = u_prev - l_prev
-    if upper_flat and lower_flat:
+    latest_upper_flat = abs(change(u, u_prev)) <= t.bb_flat_tolerance
+    latest_lower_flat = abs(change(l, l_prev)) <= t.bb_flat_tolerance
+    if latest_upper_flat and latest_lower_flat:
         labels.append("Bands are Flat")
     elif width_prev and width > width_prev * (1 + t.bb_flat_tolerance):
         labels.append("Bands Expanding")
@@ -207,6 +220,17 @@ def bollinger_cell(
         labels.append("Bands Contracting")
     else:
         labels.append("Bands are Flat")
+
+    def side_state(expanding: bool, flat: bool) -> str:
+        return "expanding" if expanding else "flat" if flat else "contracting"
+
+    labels.append(f"Upper band {side_state(upper_expanding, upper_flat)}")
+    labels.append(f"Lower band {side_state(lower_expanding, lower_flat)}")
+    if forming:
+        if highs[-1] >= u:
+            labels.append("Forming candle touches UBB")
+        if lows[-1] <= l:
+            labels.append("Forming candle touches LBB")
 
     # The configured stddev multiple gives one standard deviation; three SD bands scale from it.
     band_3sd = 3 * (u - m) / t.indicators.bb_stddev
@@ -870,7 +894,9 @@ def evaluate_timeframe(
         labels=patterns.labels, bias=patterns.bias, values={"location": location.label}, rule_ids=["candles"]
     )
 
-    cells["bollinger"] = bollinger_cell(s.highs, s.lows, s.closes, s.bb_upper, s.bb_basis, s.bb_lower, t)
+    cells["bollinger"] = bollinger_cell(
+        s.highs, s.lows, s.closes, s.bb_upper, s.bb_basis, s.bb_lower, t, forming=latest_candle_live
+    )
     cells["rsi"] = rsi_cell(s.rsi, t)
     cells["dmi"] = dmi_cell(s.plus_di, s.minus_di, t)
     cells["adx"] = adx_cell(s.adx, s.plus_di, s.minus_di, t)

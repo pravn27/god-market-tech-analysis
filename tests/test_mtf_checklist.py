@@ -562,3 +562,47 @@ def test_checklist_rows_now_automate_volume_and_chart_patterns_without_new_rows(
     assert rows["weapon_volume"].automated is True
     assert rows["chart_pattern"].automated is True
     assert len(CHECKLIST_ROWS) == 21
+
+
+# Bollinger side states and signal candle (live feed)
+
+
+def test_upper_band_expanding_without_a_touch_is_labelled_by_side_not_ubbc():
+    cell = bb_case([100, 101, 103, 104], [95] * 4, [99, 100, 102, 103], [100, 101, 103, 106], [100] * 4, [96] * 4)
+    assert "UBBC, BB Expands" not in cell.labels
+    assert "Upper band expanding" in cell.labels
+    assert "Lower band flat" in cell.labels
+
+
+def test_contracting_upper_band_that_was_touched_is_not_a_failure():
+    cell = bb_case([100, 101, 103, 105], [95] * 4, [99, 100, 102, 104], [110, 108, 106, 104], [100] * 4, [96] * 4)
+    assert "UBBC Failure, BKT" not in cell.labels
+    assert "Upper band contracting" in cell.labels
+
+
+def test_flat_upper_band_touched_within_recent_candles_is_a_failure():
+    cell = bb_case([100, 101, 103, 105], [95] * 4, [99, 100, 102, 104], [104] * 4, [100] * 4, [96] * 4)
+    assert "UBBC Failure, BKT" in cell.labels
+    assert cell.bias is Bias.BEARISH
+
+
+def _bb_forming(highs, lows, closes, upper, basis, lower):
+    return bollinger_cell(pad(highs), pad(lows), pad(closes), pad(upper), pad(basis), pad(lower), T, forming=True)
+
+
+def test_forming_latest_candle_does_not_decide_ubbc_but_the_closed_candle_does():
+    highs, upper = [100, 101, 106, 104], [100, 101, 103, 106]
+    closes, basis, lower = [99, 100, 104, 103], [100] * 4, [96] * 4
+    closed_only = _bb_forming(highs, [95] * 4, closes, upper, basis, lower)
+    assert "UBBC, BB Expands" in closed_only.labels
+    assert "Forming candle touches UBB" not in closed_only.labels
+
+    latest_decides = bb_case(highs, [95] * 4, closes, upper, basis, lower)
+    assert "UBBC, BB Expands" not in latest_decides.labels
+
+
+def test_forming_candle_touch_is_reported_as_a_note_not_a_signal():
+    cell = _bb_forming([100, 101, 102, 107], [95] * 4, [99, 100, 101, 106], [104] * 4, [100] * 4, [96] * 4)
+    assert "Forming candle touches UBB" in cell.labels
+    assert "UBBC, BB Expands" not in cell.labels
+    assert "UBBC Failure, BKT" not in cell.labels

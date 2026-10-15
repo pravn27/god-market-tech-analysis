@@ -167,13 +167,32 @@ Detected on the latest two/three candles: Bullish/Bearish Engulf, Bullish/Bearis
 
 | Condition | Label | Bias |
 | --- | --- | --- |
-| High ≥ upper band and upper band expanding | `UBBC, BB Expands` | bullish |
-| Low ≤ lower band and lower band expanding | `LBBC, BB Expands` | bearish |
-| Upper band touched within `recent_crossover_periods`, band flat | `UBBC Failure, BKT` | bearish |
-| Lower band touched within `recent_crossover_periods`, band flat | `LBBC Failure, BKP` | bullish |
+| High ≥ upper band and upper band expanding (signal candle) | `UBBC, BB Expands` | bullish |
+| Low ≤ lower band and lower band expanding (signal candle) | `LBBC, BB Expands` | bearish |
+| Upper band touched within `recent_crossover_periods` and upper band flat | `UBBC Failure, BKT` | bearish |
+| Lower band touched within `recent_crossover_periods` and lower band flat | `LBBC Failure, BKP` | bullish |
 | Otherwise | `Price is Above Median` / `Price is Below Median` / `Price is Near Median` | bullish / bearish / neutral |
 
-Append `Bands are Flat` or `Bands Expanding` / `Bands Contracting`. Values: upper, basis, lower, band width, %B.
+**Signal candle:** the last closed candle when the latest candle is still forming, otherwise the latest candle. Touch and band-direction tests use the signal candle. A band that touches but contracts is not a failure: BKT / BKP need a flat band (PAPA source: "does not expand and becomes flat").
+
+Appended to every Bollinger cell:
+
+- Total width (latest candle): `Bands are Flat`, `Bands Expanding` or `Bands Contracting`.
+- Side states (signal candle, every cell): `Upper band expanding` / `Upper band flat` / `Upper band contracting`, and the same for `Lower band`. A band is expanding when it moves more than `bb_flat_tolerance` in its outward direction over `slope_lookback` candles; flat when the move is within that tolerance; otherwise contracting.
+- `Forming candle touches UBB` / `Forming candle touches LBB` when the still-forming latest candle reaches a band. This is a note only; it never sets `UBBC` or `LBBC`.
+- `Beyond +3 SD band` / `Beyond -3 SD band` (see below).
+
+Values: upper, basis, lower, band width, %B.
+
+**All possible Bollinger values:**
+
+| Group | Possible values | Bias |
+| --- | --- | --- |
+| State (one of, checked in this order) | `UBBC, BB Expands` (bullish), `LBBC, BB Expands` (bearish), `UBBC Failure, BKT` (bearish), `LBBC Failure, BKP` (bullish), `Price is Near Median` (neutral), `Price is Above Median` (bullish), `Price is Below Median` (bearish) | as shown in each label |
+| Total width (one of) | `Bands are Flat`, `Bands Expanding`, `Bands Contracting` | neutral (no bias change) |
+| Side states (one each) | `Upper band expanding` / `flat` / `contracting`; `Lower band expanding` / `flat` / `contracting` | neutral (no bias change) |
+| Forming-candle notes (optional) | `Forming candle touches UBB`, `Forming candle touches LBB` | neutral (no bias change) |
+| 3 SD excursions (optional) | `Beyond +3 SD band`, `Beyond -3 SD band` | neutral (no bias change) |
 
 Three-standard-deviation excursions are appended as labels, bias unchanged: `Beyond +3 SD band` when High ≥ basis + 3σ, and `Beyond -3 SD band` when Low ≤ basis − 3σ, where σ = (upper − basis) / `bb_stddev`.
 

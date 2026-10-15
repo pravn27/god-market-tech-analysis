@@ -10,6 +10,7 @@ from god_market_api.mtf_checklist import (
     _divergence_labels,
     _fibonacci_labels,
     adx_cell,
+    divergence_cell,
     bollinger_cell,
     chart_pattern_cell,
     dmi_cell,
@@ -419,6 +420,34 @@ def test_divergence_ignores_swings_older_than_the_lookback():
     assert _divergence_labels("RSI", highs, [], oscillator, 100, T) == []
 
 
+def test_divergence_row_collects_labels_from_all_three_oscillators_neutrally():
+    highs = [Pivot(10, 100.0), Pivot(50, 105.0)]
+    lows = [Pivot(12, 95.0), Pivot(52, 90.0)]
+    rsi = [None] * 60
+    rsi[10], rsi[50] = 70.0, 60.0  # bearish: higher high, lower RSI
+    macd = [None] * 60
+    macd[12], macd[52] = 30.0, 35.0  # bullish: lower low, higher MACD
+    stoch = [None] * 60
+    cell = divergence_cell((("RSI", rsi), ("MACD", macd), ("Stochastic %K", stoch)), highs, lows, 60, T)
+    assert cell.labels == ["Bearish divergence (RSI)", "Bullish divergence (MACD)"]
+    assert cell.bias is Bias.NEUTRAL
+    assert cell.rule_ids == ["divergence"]
+
+
+def test_divergence_row_states_when_there_is_none():
+    highs = [Pivot(10, 100.0), Pivot(50, 105.0)]
+    oscillator = [None] * 60
+    oscillator[10], oscillator[50] = 60.0, 70.0
+    cell = divergence_cell((("RSI", oscillator),), highs, [], 60, T)
+    assert cell.labels == ["No divergence (RSI, MACD, Stochastic %K)"]
+
+
+def test_divergence_row_is_unavailable_without_two_confirmed_swings():
+    cell = divergence_cell((("RSI", [None] * 60),), [Pivot(10, 100.0)], [Pivot(12, 95.0)], 60, T)
+    assert cell.bias is Bias.UNAVAILABLE
+    assert cell.unavailable_reason == "Needs two confirmed swing highs or lows."
+
+
 def test_volume_classifies_latest_candle_against_the_prior_average():
     cell = volume_cell(close_path([10] * 20, volume=100) + close_path([10], volume=250), T)
     assert cell.labels == ["Double average volume (high)", "2.50x the 20-candle average"]
@@ -561,7 +590,13 @@ def test_checklist_rows_now_automate_volume_and_chart_patterns_without_new_rows(
     rows = {row.id: row for row in CHECKLIST_ROWS}
     assert rows["weapon_volume"].automated is True
     assert rows["chart_pattern"].automated is True
-    assert len(CHECKLIST_ROWS) == 21
+    assert len(CHECKLIST_ROWS) == 22
+
+
+def test_divergence_row_sits_directly_after_emas_in_the_indicators_section():
+    row_ids = [row.id for row in CHECKLIST_ROWS]
+    assert row_ids[row_ids.index("emas") + 1] == "divergence"
+    assert {row.section for row in CHECKLIST_ROWS if row.id == "divergence"} == {"3. Check Indicators"}
 
 
 # Bollinger side states and signal candle (live feed)

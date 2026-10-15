@@ -93,6 +93,7 @@ CHECKLIST_ROWS: tuple[ChecklistRow, ...] = (
     ChecklistRow("macd", SECTION_INDICATORS, "MACD", True),
     ChecklistRow("stochastic", SECTION_INDICATORS, "Stochastic", True),
     ChecklistRow("emas", SECTION_INDICATORS, "EMAs", True),
+    ChecklistRow("divergence", SECTION_INDICATORS, "Divergence (RSI, MACD, Stochastic %K)", True),
     ChecklistRow("chart_pattern", SECTION_SETUPS, "Concepts / Setups / Chart Patterns", True),
     ChecklistRow("weapon_candle", SECTION_SETUPS, "Significant / Weapon / Confirmation candle", False),
     ChecklistRow("weapon_volume", SECTION_SETUPS, "Volume of weapon candle", True),
@@ -571,6 +572,24 @@ def _divergence_labels(
     return labels
 
 
+def divergence_cell(
+    oscillators: Sequence[tuple[str, Series]],
+    highs: Sequence[Pivot],
+    lows: Sequence[Pivot],
+    count: int,
+    t: ChecklistThresholds,
+) -> ChecklistCell:
+    """Divergence row: each oscillator's labels in one cell. Neutral bias, a warning to read with the other rows."""
+    if len(highs) < 2 and len(lows) < 2:
+        return _unavailable("Needs two confirmed swing highs or lows.", "divergence")
+    labels: List[str] = []
+    for name, oscillator in oscillators:
+        labels.extend(_divergence_labels(name, highs, lows, oscillator, count, t))
+    if not labels:
+        labels = ["No divergence (RSI, MACD, Stochastic %K)"]
+    return ChecklistCell(labels=labels, bias=Bias.NEUTRAL, rule_ids=["divergence"])
+
+
 def volume_cell(candles: Sequence[Candle], t: ChecklistThresholds) -> ChecklistCell:
     """Latest closed candle volume against the average of the preceding candles."""
     rule = "volume"
@@ -903,17 +922,13 @@ def evaluate_timeframe(
     cells["macd"] = macd_cell(s.macd_line, s.macd_signal, t)
     cells["stochastic"] = stochastic_cell(s.stoch_k, s.stoch_d, t)
     cells["emas"] = ema_cell(s.closes, s.ema, t)
-
-    for row_id, name, oscillator in (
-        ("rsi", "RSI", s.rsi),
-        ("macd", "MACD", s.macd_line),
-        ("stochastic", "Stochastic %K", s.stoch_k),
-    ):
-        cells[row_id] = _with_labels(
-            cells[row_id],
-            _divergence_labels(name, v2_highs, v2_lows, oscillator, len(structure_candles), t),
-            f"{row_id}-divergence",
-        )
+    cells["divergence"] = divergence_cell(
+        (("RSI", s.rsi), ("MACD", s.macd_line), ("Stochastic %K", s.stoch_k)),
+        v2_highs,
+        v2_lows,
+        len(structure_candles),
+        t,
+    )
     cells["chart_pattern"] = chart_pattern_cell(structure_candles, v2_highs, v2_lows, t)
 
     return TimeframeEvaluation(

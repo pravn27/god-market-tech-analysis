@@ -58,6 +58,7 @@ Eight timeframe columns in four layers, exactly as the worksheet. A timeframe th
 | 3 | | MACD | Yes |
 | 3 | | Stochastic | Yes |
 | 3 | | EMAs | Yes |
+| 3 | | Divergence (RSI, MACD, Stochastic %K) | Yes (own row, directly after EMAs) |
 | 4 | Double & Triple Screen decision | Per-layer screen signal (BUY / SELL, tick, PCO/NCO state) | Yes |
 | 4 | | Double Screen decision, Triple Screen decision | Yes |
 | 4 | | What's your interpretation? | Manual |
@@ -198,9 +199,13 @@ Three-standard-deviation excursions are appended as labels, bias unchanged: `Bey
 
 ### 3. Divergence (RSI, MACD, Stochastic %K)
 
+Own row, placed directly after EMAs. Its labels are collected from all three oscillators.
+
 - Uses the last two confirmed price pivots of closed candles (the same pivots as Dow v2). Bullish: the later swing low is lower than the earlier one while the oscillator's value at that candle is higher. Bearish: the later swing high is higher while the oscillator is lower.
 - Reported only when the later pivot is within `divergence_lookback` candles.
-- Labels `Bullish divergence (RSI)`, `Bullish divergence (MACD)`, `Bullish divergence (Stochastic %K)` and the matching `Bearish` labels are appended to the row. Bias is unchanged: divergence is a warning to be read with the rest of the row, not a trigger.
+- Labels `Bullish divergence (RSI)`, `Bullish divergence (MACD)`, `Bullish divergence (Stochastic %K)` and the matching `Bearish` labels are listed in the row. When none apply, the row shows `No divergence (RSI, MACD, Stochastic %K)`.
+- Bias is always neutral: divergence is a warning to be read with the other indicator rows, not a trigger.
+- Unavailable (`Needs two confirmed swing highs or lows.`) when fewer than two confirmed pivots exist in both highs and lows.
 
 ### 3. RSI (SMM All Indicators; PAPA)
 
@@ -472,6 +477,7 @@ Confirmed by the user on 2026-10-09:
 | Thresholds | Defaults above, configurable in the profile |
 | Bollinger basis | Standard SMA basis kept, even though the user's chart uses an EMA basis (difference 0.04% on validation) |
 | Added checklist evidence | Nine items approved on 2026-10-15 as labels inside existing rows (no new rows). Divergence, volume, breakout, Fibonacci, Heikin-Ashi, 3 SD and extended EMA stack labels leave bias unchanged; Double Top / Bottom sets bias only on a neckline break |
+| Divergence row | Divergence moved out of the RSI, MACD and Stochastic rows into its own row directly after EMAs, so the three oscillator readings and their divergence sit in one place. Neutral bias. This supersedes the "no new rows" wording above for divergence only |
 
 ## Open questions
 

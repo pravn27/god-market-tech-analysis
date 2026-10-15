@@ -139,6 +139,22 @@ test('expands and collapses the Super TIDE column on demand', async () => {
   expect(within(matrix).getAllByText('Manual check')).toHaveLength(6)
 })
 
+test('collapses and expands a checklist section without hiding the section heading', async () => {
+  mockApi()
+  renderPage()
+
+  const matrix = await screen.findByRole('region', { name: 'Multi-timeframe checklist' })
+  expect(within(matrix).getByRole('rowheader', { name: 'MACD' })).toBeInTheDocument()
+
+  fireEvent.click(within(matrix).getByRole('button', { name: 'Collapse section 3. Check Indicators' }))
+  expect(within(matrix).queryByRole('rowheader', { name: 'MACD' })).not.toBeInTheDocument()
+  expect(within(matrix).getByRole('button', { name: 'Expand section 3. Check Indicators' })).toHaveAttribute('aria-expanded', 'false')
+  expect(within(matrix).getByText('3. Check Indicators')).toBeInTheDocument()
+
+  fireEvent.click(within(matrix).getByRole('button', { name: 'Expand section 3. Check Indicators' }))
+  expect(within(matrix).getByRole('rowheader', { name: 'MACD' })).toBeInTheDocument()
+})
+
 test('opens the detail drawer with values when a cell is clicked', async () => {
   mockApi()
   renderPage()

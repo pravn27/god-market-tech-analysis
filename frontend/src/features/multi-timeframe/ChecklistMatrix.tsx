@@ -1,4 +1,4 @@
-import { DoubleLeftOutlined, DoubleRightOutlined } from '@ant-design/icons'
+import { DoubleLeftOutlined, DoubleRightOutlined, DownOutlined, RightOutlined } from '@ant-design/icons'
 import { Button, Tag, Tooltip } from 'antd'
 import { Fragment, useState } from 'react'
 
@@ -63,6 +63,37 @@ function sectionsOf(rows: MtfChecklistRow[]) {
   return sections
 }
 
+const SCREEN_SECTION_NAME = '4. Double & Triple Screen decision'
+
+function SectionHeading({
+  name,
+  columnCount,
+  collapsed,
+  onToggle,
+}: {
+  name: string
+  columnCount: number
+  collapsed: boolean
+  onToggle: () => void
+}) {
+  return (
+    <tr className="mtf-section-row">
+      <th colSpan={columnCount} scope="rowgroup">
+        <button
+          type="button"
+          className="mtf-section-toggle"
+          aria-label={`${collapsed ? 'Expand' : 'Collapse'} section ${name}`}
+          aria-expanded={!collapsed}
+          onClick={onToggle}
+        >
+          {collapsed ? <RightOutlined /> : <DownOutlined />}
+          <span>{name}</span>
+        </button>
+      </th>
+    </tr>
+  )
+}
+
 function CellTags({ rowId, cell }: { rowId: string; cell: ChecklistCell }) {
   if (cell.bias === 'unavailable') {
     return <Tag variant="outlined" className="mtf-tag mtf-tag-unavailable">Unavailable</Tag>
@@ -78,6 +109,8 @@ function CellTags({ rowId, cell }: { rowId: string; cell: ChecklistCell }) {
 
 export default function ChecklistMatrix({ analysis, onSelect }: ChecklistMatrixProps) {
   const [collapsedLayers, setCollapsedLayers] = useState<Set<string>>(() => new Set(COLLAPSIBLE_LAYERS))
+  // Sections start expanded; collapsing one hides its checklist rows only.
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => new Set())
   const slots = buildSlots(analysis.layers, collapsedLayers)
   const columnCount = slots.length + 1
   const sections = sectionsOf(analysis.rows)
@@ -93,49 +126,66 @@ export default function ChecklistMatrix({ analysis, onSelect }: ChecklistMatrixP
     })
   }
 
+  const toggleSection = (name: string) => {
+    setCollapsedSections((previous) => {
+      const next = new Set(previous)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
+
+  const screenCollapsed = collapsedSections.has(SCREEN_SECTION_NAME)
   const screenRows = (
     <>
-      <tr className="mtf-section-row">
-        <th colSpan={columnCount} scope="rowgroup">4. Double &amp; Triple Screen decision</th>
-      </tr>
-      <tr>
-        <th scope="row" className="mtf-sticky mtf-row-header">Screen signal per timeframe</th>
-        {slots.map((slot) => {
-          const startClass = slot.layerStart ? 'mtf-layer-start' : undefined
-          const { layer, timeframe } = slot
-          if (timeframe === null) return <td key={slot.key} className={`mtf-collapsed-col ${startClass ?? ''}`} aria-hidden="true" />
-          const screen = layer.screens[timeframe]
-          if (!screen) return <td key={slot.key} className={startClass} />
-          return (
-            <td key={slot.key} className={startClass}>
-              <button
-                type="button"
-                className="mtf-cell"
-                aria-label={`${layer.name} ${timeframeLabel[timeframe]} screen: ${screen.signal}`}
-                onClick={() => onSelect({ kind: 'screen', layer, timeframe, screen })}
+      <SectionHeading
+        name={SCREEN_SECTION_NAME}
+        columnCount={columnCount}
+        collapsed={screenCollapsed}
+        onToggle={() => toggleSection(SCREEN_SECTION_NAME)}
+      />
+      {!screenCollapsed && (
+        <>
+        <tr>
+          <th scope="row" className="mtf-sticky mtf-row-header">Screen signal per timeframe</th>
+          {slots.map((slot) => {
+            const startClass = slot.layerStart ? 'mtf-layer-start' : undefined
+            const { layer, timeframe } = slot
+            if (timeframe === null) return <td key={slot.key} className={`mtf-collapsed-col ${startClass ?? ''}`} aria-hidden="true" />
+            const screen = layer.screens[timeframe]
+            if (!screen) return <td key={slot.key} className={startClass} />
+            return (
+              <td key={slot.key} className={startClass}>
+                <button
+                  type="button"
+                  className="mtf-cell"
+                  aria-label={`${layer.name} ${timeframeLabel[timeframe]} screen: ${screen.signal}`}
+                  onClick={() => onSelect({ kind: 'screen', layer, timeframe, screen })}
+                >
+                  <Tag color={signalColor[screen.signal]} className="mtf-tag mtf-signal">{screen.signal}</Tag>
+                  {screen.labels.map((label) => <Tag key={label} className="mtf-tag">{label}</Tag>)}
+                </button>
+              </td>
+            )
+          })}
+        </tr>
+        <tr>
+          <th scope="row" className="mtf-sticky mtf-row-header">Layer signal</th>
+          {analysis.layers.map((layer) => {
+            const collapsed = collapsedLayers.has(layer.name)
+            return (
+              <td
+                key={layer.name}
+                colSpan={collapsed ? 1 : layer.timeframes.length}
+                className="mtf-layer-signal mtf-layer-start"
               >
-                <Tag color={signalColor[screen.signal]} className="mtf-tag mtf-signal">{screen.signal}</Tag>
-                {screen.labels.map((label) => <Tag key={label} className="mtf-tag">{label}</Tag>)}
-              </button>
-            </td>
-          )
-        })}
-      </tr>
-      <tr>
-        <th scope="row" className="mtf-sticky mtf-row-header">Layer signal</th>
-        {analysis.layers.map((layer) => {
-          const collapsed = collapsedLayers.has(layer.name)
-          return (
-            <td
-              key={layer.name}
-              colSpan={collapsed ? 1 : layer.timeframes.length}
-              className="mtf-layer-signal mtf-layer-start"
-            >
-              <Tag color={signalColor[layer.signal]} className="mtf-tag mtf-signal">{layer.signal}</Tag>
-            </td>
-          )
-        })}
-      </tr>
+                <Tag color={signalColor[layer.signal]} className="mtf-tag mtf-signal">{layer.signal}</Tag>
+              </td>
+            )
+          })}
+        </tr>
+        </>
+      )}
     </>
   )
 
@@ -220,10 +270,13 @@ export default function ChecklistMatrix({ analysis, onSelect }: ChecklistMatrixP
           {sections.map((section, index) => (
             <Fragment key={section.name}>
               {index === screenIndex && screenRows}
-              <tr className="mtf-section-row">
-                <th colSpan={columnCount} scope="rowgroup">{section.name}</th>
-              </tr>
-              {section.rows.map((row) => (
+              <SectionHeading
+                name={section.name}
+                columnCount={columnCount}
+                collapsed={collapsedSections.has(section.name)}
+                onToggle={() => toggleSection(section.name)}
+              />
+              {!collapsedSections.has(section.name) && section.rows.map((row) => (
                 <tr key={row.id}>
                   <th scope="row" className="mtf-sticky mtf-row-header">{row.label}</th>
                   {slots.map((slot) => {

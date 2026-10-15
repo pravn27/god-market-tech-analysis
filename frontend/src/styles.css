@@ -157,6 +157,8 @@ body { background: var(--app-bg); }
 .mtf-tf-name { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
 .mtf-tf-tags { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .mtf-section-row th { background: var(--section-bg); border-inline-start: 4px solid #1890ff; font-size: 13px; font-weight: 700; inset-inline-start: 0; letter-spacing: 0.02em; padding: 8px 12px; position: sticky; text-transform: uppercase; }
+.mtf-section-toggle { align-items: center; background: none; border: 0; color: inherit; cursor: pointer; display: inline-flex; font: inherit; gap: 8px; letter-spacing: inherit; padding: 0; text-align: start; text-transform: inherit; }
+.mtf-section-toggle:focus-visible { outline: 2px solid #1890ff; outline-offset: 2px; }
 .mtf-cell { background: transparent; border: 0; border-radius: 6px; cursor: pointer; display: flex; flex-wrap: wrap; gap: 6px; padding: 4px; text-align: start; width: 100%; }
 .mtf-cell:hover { background: var(--row-striped); }
 .mtf-cell:focus-visible { outline: 2px solid #1890ff; }

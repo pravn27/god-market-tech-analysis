@@ -139,6 +139,21 @@ test('expands and collapses the Super TIDE column on demand', async () => {
   expect(within(matrix).getAllByText('Manual check')).toHaveLength(6)
 })
 
+test('collapses and expands the TIDE layer on demand, like Super TIDE', async () => {
+  mockApi()
+  renderPage()
+
+  const matrix = await screen.findByRole('region', { name: 'Multi-timeframe checklist' })
+  expect(within(matrix).getByText('Daily')).toBeInTheDocument()
+
+  fireEvent.click(within(matrix).getByRole('button', { name: 'Collapse TIDE column' }))
+  expect(within(matrix).queryByText('Daily')).not.toBeInTheDocument()
+  expect(within(matrix).getByRole('button', { name: 'Expand TIDE column' })).toHaveAttribute('aria-expanded', 'false')
+
+  fireEvent.click(within(matrix).getByRole('button', { name: 'Expand TIDE column' }))
+  expect(within(matrix).getByText('Daily')).toBeInTheDocument()
+})
+
 test('collapses and expands a checklist section without hiding the section heading', async () => {
   mockApi()
   renderPage()

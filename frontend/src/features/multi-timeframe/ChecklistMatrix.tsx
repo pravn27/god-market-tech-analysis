@@ -21,8 +21,8 @@ interface ChecklistMatrixProps {
   onSelect: (selection: MatrixSelection) => void
 }
 
-// Super TIDE is used only when needed, so it can be collapsed and starts collapsed.
-const COLLAPSIBLE_LAYERS = ['Super TIDE']
+// Every layer can be collapsed. Super TIDE is used only when needed, so it starts collapsed.
+const DEFAULT_COLLAPSED_LAYERS = ['Super TIDE']
 
 const freshnessTag = {
   ready: { color: 'success', label: 'Fresh' },
@@ -108,7 +108,7 @@ function CellTags({ rowId, cell }: { rowId: string; cell: ChecklistCell }) {
 }
 
 export default function ChecklistMatrix({ analysis, onSelect }: ChecklistMatrixProps) {
-  const [collapsedLayers, setCollapsedLayers] = useState<Set<string>>(() => new Set(COLLAPSIBLE_LAYERS))
+  const [collapsedLayers, setCollapsedLayers] = useState<Set<string>>(() => new Set(DEFAULT_COLLAPSED_LAYERS))
   // Sections start expanded; collapsing one hides its checklist rows only.
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => new Set())
   const slots = buildSlots(analysis.layers, collapsedLayers)
@@ -229,19 +229,17 @@ export default function ChecklistMatrix({ analysis, onSelect }: ChecklistMatrixP
                 >
                   <span className="mtf-layer-title">{layer.name}</span>
                   <span className="mtf-layer-indicator">{layer.screen_indicator}</span>
-                  {COLLAPSIBLE_LAYERS.includes(layer.name) && (
-                    <Tooltip title={`Collapse ${layer.name}`}>
-                      <Button
-                        type="text"
-                        size="small"
-                        className="mtf-layer-toggle"
-                        icon={<DoubleLeftOutlined />}
-                        aria-label={`Collapse ${layer.name} column`}
-                        aria-expanded
-                        onClick={() => toggleLayer(layer.name)}
-                      />
-                    </Tooltip>
-                  )}
+                  <Tooltip title={`Collapse ${layer.name}`}>
+                    <Button
+                      type="text"
+                      size="small"
+                      className="mtf-layer-toggle"
+                      icon={<DoubleLeftOutlined />}
+                      aria-label={`Collapse ${layer.name} column`}
+                      aria-expanded
+                      onClick={() => toggleLayer(layer.name)}
+                    />
+                  </Tooltip>
                 </th>
               )
             })}

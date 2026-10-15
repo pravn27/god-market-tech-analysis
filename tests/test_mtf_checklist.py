@@ -6,15 +6,22 @@ from god_market_api.models import Bias, Candle
 from god_market_api.mtf_checklist import (
     CHECKLIST_ROWS,
     ChecklistThresholds,
+    _breakout_labels,
+    _divergence_labels,
+    _fibonacci_labels,
     adx_cell,
     bollinger_cell,
+    chart_pattern_cell,
     dmi_cell,
     ema_cell,
     evaluate_timeframe,
+    heikin_ashi_labels,
     macd_cell,
     rsi_cell,
     stochastic_cell,
+    volume_cell,
 )
+from god_market_api.price_structure import Pivot, detect_candle_patterns
 
 T = ChecklistThresholds()
 
@@ -309,7 +316,7 @@ def make_candles(n=300):
         open_ = price
         close = price + drift
         candles.append(Candle(timestamp=start + timedelta(days=i), open=open_, high=max(open_, close) + 0.5,
-                              low=min(open_, close) - 0.5, close=close))
+                              low=min(open_, close) - 0.5, close=close, volume=1000 + 50 * (i % 7)))
         price = close
     return candles
 
@@ -370,3 +377,188 @@ def test_short_history_makes_only_long_indicators_unavailable():
     evaluation = evaluate_timeframe(make_candles(60), T)
     assert evaluation.cells["rsi"].bias is not Bias.UNAVAILABLE
     assert evaluation.cells["emas"].values["ema_200"] is None
+
+
+# Evidence inside existing rows
+
+
+def bar(o, h, l, c, volume=None, i=0):
+    start = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    return Candle(timestamp=start + timedelta(days=i), open=o, high=h, low=l, close=c, volume=volume)
+
+
+def close_path(closes, volume=None):
+    return [bar(c, c + 0.5, c - 0.5, c, volume=volume, i=i) for i, c in enumerate(closes)]
+
+
+def test_bearish_divergence_when_price_makes_higher_high_on_lower_oscillator():
+    highs = [Pivot(10, 100.0), Pivot(50, 105.0)]
+    oscillator = [None] * 60
+    oscillator[10], oscillator[50] = 70.0, 60.0
+    assert _divergence_labels("RSI", highs, [], oscillator, 60, T) == ["Bearish divergence (RSI)"]
+
+
+def test_bullish_divergence_when_price_makes_lower_low_on_higher_oscillator():
+    lows = [Pivot(10, 95.0), Pivot(50, 90.0)]
+    oscillator = [None] * 60
+    oscillator[10], oscillator[50] = 30.0, 35.0
+    assert _divergence_labels("MACD", [], lows, oscillator, 60, T) == ["Bullish divergence (MACD)"]
+
+
+def test_no_divergence_when_oscillator_confirms_price():
+    highs = [Pivot(10, 100.0), Pivot(50, 105.0)]
+    oscillator = [None] * 60
+    oscillator[10], oscillator[50] = 60.0, 70.0
+    assert _divergence_labels("RSI", highs, [], oscillator, 60, T) == []
+
+
+def test_divergence_ignores_swings_older_than_the_lookback():
+    highs = [Pivot(5, 100.0), Pivot(20, 105.0)]
+    oscillator = [None] * 100
+    oscillator[5], oscillator[20] = 70.0, 60.0
+    assert _divergence_labels("RSI", highs, [], oscillator, 100, T) == []
+
+
+def test_volume_classifies_latest_candle_against_the_prior_average():
+    cell = volume_cell(close_path([10] * 20, volume=100) + close_path([10], volume=250), T)
+    assert cell.labels == ["Double average volume (high)", "2.50x the 20-candle average"]
+    assert cell.values["volume_ratio"] == 2.5
+    assert cell.bias is Bias.NEUTRAL
+
+
+@pytest.mark.parametrize(
+    ("latest", "label"),
+    [(60, "Less than average volume"), (110, "Average volume"), (150, "More than average volume")],
+)
+def test_volume_bands(latest, label):
+    cell = volume_cell(close_path([10] * 20, volume=100) + close_path([10], volume=latest), T)
+    assert cell.labels[0] == label
+
+
+def test_volume_is_unavailable_without_volume_or_enough_history():
+    assert volume_cell(close_path([10] * 21), T).unavailable_reason == "Volume is not provided for this timeframe."
+    assert "Needs about 21" in volume_cell(close_path([10] * 5, volume=100), T).unavailable_reason
+
+
+def test_breakout_above_swing_high_on_the_latest_close_with_volume_confirmation():
+    candles = close_path([100, 101, 102, 104, 106])
+    labels = _breakout_labels(candles, [Pivot(2, 105.0)], [], volume_ratio=1.5, t=T)
+    assert labels == ["Breakout above 105.00, volume confirms"]
+
+
+def test_breakdown_below_swing_low_without_volume_confirmation():
+    candles = close_path([110, 109, 108, 105, 103])
+    labels = _breakout_labels(candles, [], [Pivot(2, 104.0)], volume_ratio=0.5, t=T)
+    assert labels == ["Breakdown below 104.00, volume does not confirm"]
+
+
+def test_no_breakout_when_the_level_was_not_crossed_by_the_latest_close():
+    candles = close_path([100, 101, 102, 104, 106])
+    assert _breakout_labels(candles, [Pivot(2, 150.0)], [], volume_ratio=None, t=T) == []
+
+
+def test_fibonacci_pullback_of_latest_up_leg_names_nearest_level():
+    candles = close_path([100, 112])
+    labels = _fibonacci_labels(candles, [Pivot(5, 120.0)], [Pivot(2, 100.0)], T)
+    assert labels == ["Fib 40.0% of up-leg pullback, near 38.2%"]
+
+
+def test_fibonacci_bounce_of_latest_down_leg_without_nearby_level():
+    candles = close_path([100, 104])
+    labels = _fibonacci_labels(candles, [Pivot(2, 120.0)], [Pivot(5, 100.0)], T)
+    assert labels == ["Fib 20.0% of down-leg bounce"]
+
+
+def test_fibonacci_close_beyond_the_swing_leg_is_not_given_a_percentage():
+    candles = close_path([100, 125])
+    labels = _fibonacci_labels(candles, [Pivot(5, 120.0)], [Pivot(2, 100.0)], T)
+    assert labels == ["Close outside the latest swing leg (no Fibonacci zone)"]
+
+
+def test_fibonacci_needs_both_swings():
+    assert _fibonacci_labels(close_path([100]), [], [Pivot(2, 100.0)], T) == []
+
+
+def test_double_top_with_broken_neckline_is_bearish():
+    candles = [bar(105, 105.5, 104.5, 105) for _ in range(40)]
+    candles[15] = bar(101, 101.5, 100, 101)
+    candles[-1] = bar(98, 98.5, 97.5, 98)
+    cell = chart_pattern_cell(candles, [Pivot(10, 110.0), Pivot(25, 109.5)], [], T)
+    assert cell.labels == ["Double Top, neckline 100.00 broken"]
+    assert cell.bias is Bias.BEARISH
+
+
+def test_double_top_candidate_while_neckline_holds():
+    candles = [bar(105, 105.5, 104.5, 105) for _ in range(40)]
+    candles[15] = bar(101, 101.5, 100, 101)
+    cell = chart_pattern_cell(candles, [Pivot(10, 110.0), Pivot(25, 109.5)], [], T)
+    assert cell.labels == ["Double Top candidate, neckline 100.00 holding"]
+    assert cell.bias is Bias.NEUTRAL
+
+
+def test_double_bottom_with_broken_neckline_is_bullish():
+    candles = [bar(92, 95, 90, 92) for _ in range(40)]
+    candles[15] = bar(93, 100, 91, 93)
+    candles[-1] = bar(102, 102.5, 101.5, 102)
+    cell = chart_pattern_cell(candles, [], [Pivot(10, 90.0), Pivot(25, 90.4)], T)
+    assert cell.labels == ["Double Bottom, neckline 100.00 broken"]
+    assert cell.bias is Bias.BULLISH
+
+
+def test_no_double_pattern_is_labelled_neutral():
+    candles = close_path([100 + i for i in range(40)])
+    cell = chart_pattern_cell(candles, [Pivot(10, 110.0)], [Pivot(20, 90.0)], T)
+    assert cell.labels == ["No double top / bottom"]
+    assert cell.bias is Bias.NEUTRAL
+
+
+def test_heikin_ashi_green_with_no_lower_wick_is_labelled_strong():
+    assert heikin_ashi_labels([bar(100, 110, 104, 108)]) == ["Heikin-Ashi green with no lower wick"]
+
+
+def test_heikin_ashi_red_in_a_falling_run_is_labelled():
+    closes = [100, 98, 96, 94, 92, 90]
+    candles = [bar(c + 2, c + 2, c - 0.5, c, i=i) for i, c in enumerate(closes)]
+    assert heikin_ashi_labels(candles)[0].startswith("Heikin-Ashi red")
+
+
+def test_bollinger_three_sd_excursions_are_labelled():
+    upper_beyond = bb_case([100, 101, 103, 107], [95] * 4, [99, 100, 102, 106], [104] * 4, [100] * 4, [96] * 4)
+    lower_beyond = bb_case([100, 101, 103, 105], [95, 96, 94, 93], [99, 100, 102, 99], [104] * 4, [100] * 4, [96] * 4)
+    inside = bb_case([100, 101, 103, 105], [95] * 4, [99, 100, 102, 104], [104] * 4, [100] * 4, [96] * 4)
+    assert "Beyond +3 SD band" in upper_beyond.labels
+    assert "Beyond -3 SD band" in lower_beyond.labels
+    assert not {"Beyond +3 SD band", "Beyond -3 SD band"} & set(inside.labels)
+
+
+def test_ema_long_stack_is_labelled_for_5_50_100_200():
+    emas = {5: pad([120] * 4), 13: pad([115] * 4), 26: pad([112] * 4), 50: pad([110] * 4),
+            100: pad([105] * 4), 150: pad([103] * 4), 200: pad([100] * 4)}
+    cell = ema_cell(pad([121] * 4), emas, T)
+    assert "POC, 5 > 50 > 100 and 50 > 200" in cell.labels
+    assert cell.bias is Bias.BULLISH
+
+
+def test_candle_patterns_bullish_harami_and_three_white_soldiers():
+    harami = detect_candle_patterns([bar(110, 111, 99, 100), bar(102, 107.5, 101, 107)], False, False)
+    assert "Bullish Harami" in harami.labels
+    soldiers = detect_candle_patterns(
+        [bar(100, 103.5, 99.5, 103), bar(102, 106.5, 101.5, 106), bar(105, 109.5, 104.5, 109)], False, False
+    )
+    assert "Three White Soldiers" in soldiers.labels
+    assert soldiers.bias is Bias.BULLISH
+
+
+def test_candle_pattern_three_black_crows():
+    crows = detect_candle_patterns(
+        [bar(110, 110.5, 106.5, 107), bar(108, 108.5, 103.5, 104), bar(105, 105.5, 100.5, 101)], False, False
+    )
+    assert "Three Black Crows" in crows.labels
+    assert crows.bias is Bias.BEARISH
+
+
+def test_checklist_rows_now_automate_volume_and_chart_patterns_without_new_rows():
+    rows = {row.id: row for row in CHECKLIST_ROWS}
+    assert rows["weapon_volume"].automated is True
+    assert rows["chart_pattern"].automated is True
+    assert len(CHECKLIST_ROWS) == 21

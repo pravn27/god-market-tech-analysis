@@ -328,6 +328,19 @@ def _is_bearish(c: Candle) -> bool:
     return c.close < c.open
 
 
+def _marching(candles: Sequence[Candle], rising: bool) -> bool:
+    """Three candles closing progressively higher (or lower), each opening inside the prior real body."""
+    for previous, current in zip(candles, candles[1:]):
+        if rising and not current.close > previous.close:
+            return False
+        if not rising and not current.close < previous.close:
+            return False
+        low, high = sorted((previous.open, previous.close))
+        if not low <= current.open <= high:
+            return False
+    return True
+
+
 def price_action(previous: Candle, current: Candle, wick_tolerance: float = 0.02) -> Evidence:
     """Compare the current candle's open/close with the previous candle (PAPA Advanced Dow)."""
     labels: List[str] = []
@@ -459,6 +472,14 @@ def detect_candle_patterns(candles: Sequence[Candle], at_support: bool, at_resis
             and previous.open < current.close < previous_mid
         ):
             found.append(("Bearish Piercing", Bias.BEARISH))
+        if (
+            _is_bearish(previous)
+            and _is_bullish(current)
+            and current.open >= previous.close
+            and current.close <= previous.open
+            and current_body < previous_body
+        ):
+            found.append(("Bullish Harami", Bias.BULLISH))
         if current.high <= previous.high and current.low >= previous.low:
             found.append(("Mother candle", Bias.NEUTRAL))
 
@@ -473,6 +494,12 @@ def detect_candle_patterns(candles: Sequence[Candle], at_support: bool, at_resis
                 found.append(("Morning Star", Bias.BULLISH))
             elif _is_bullish(first) and _is_bearish(current) and current.close < first_mid:
                 found.append(("Evening Star", Bias.BEARISH))
+
+        last_three = candles[-3:]
+        if all(_is_bullish(c) for c in last_three) and _marching(last_three, rising=True):
+            found.append(("Three White Soldiers", Bias.BULLISH))
+        elif all(_is_bearish(c) for c in last_three) and _marching(last_three, rising=False):
+            found.append(("Three Black Crows", Bias.BEARISH))
 
     if not found:
         return Evidence(["No special candle"], Bias.NEUTRAL)

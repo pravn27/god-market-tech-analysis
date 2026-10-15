@@ -12,6 +12,8 @@ from typing import Dict, List, Mapping, Optional, Sequence
 from .models import Bias, Candle, ChecklistCell
 from .price_structure import (
     LocationKind,
+    Pivot,
+    SwingPoint,
     analyze_dow_structure_v2,
     detect_candle_patterns,
     dow_trend,
@@ -48,6 +50,14 @@ class ChecklistThresholds:
     macd_zero_range_window: int = 50
     wick_tolerance: float = 0.02
     dow_significance_atr: float = 0.5
+    divergence_lookback: int = 40
+    volume_average_period: int = 20
+    volume_near_average_band: float = 0.2
+    volume_double_ratio: float = 2.0
+    fib_tolerance: float = 0.03
+    pattern_lookback: int = 60
+    double_top_tolerance: float = 0.015
+    double_top_min_gap: int = 10
 
     @property
     def version(self) -> str:
@@ -83,9 +93,9 @@ CHECKLIST_ROWS: tuple[ChecklistRow, ...] = (
     ChecklistRow("macd", SECTION_INDICATORS, "MACD", True),
     ChecklistRow("stochastic", SECTION_INDICATORS, "Stochastic", True),
     ChecklistRow("emas", SECTION_INDICATORS, "EMAs", True),
-    ChecklistRow("chart_pattern", SECTION_SETUPS, "Concepts / Setups / Chart Patterns", False),
+    ChecklistRow("chart_pattern", SECTION_SETUPS, "Concepts / Setups / Chart Patterns", True),
     ChecklistRow("weapon_candle", SECTION_SETUPS, "Significant / Weapon / Confirmation candle", False),
-    ChecklistRow("weapon_volume", SECTION_SETUPS, "Volume of weapon candle", False),
+    ChecklistRow("weapon_volume", SECTION_SETUPS, "Volume of weapon candle", True),
     ChecklistRow("setup_type", SECTION_SETUPS, "Momentum or Swing setup", False),
     ChecklistRow("followup", SECTION_SETUPS, "Do you have follow-up candles?", False),
     ChecklistRow("what_if", SECTION_SETUPS, "Be ready with What If analysis", False),
@@ -197,6 +207,13 @@ def bollinger_cell(
         labels.append("Bands Contracting")
     else:
         labels.append("Bands are Flat")
+
+    # The configured stddev multiple gives one standard deviation; three SD bands scale from it.
+    band_3sd = 3 * (u - m) / t.indicators.bb_stddev
+    if highs[-1] >= m + band_3sd:
+        labels.append("Beyond +3 SD band")
+    elif lows[-1] <= m - band_3sd:
+        labels.append("Beyond -3 SD band")
 
     return ChecklistCell(
         labels=labels,
@@ -476,6 +493,13 @@ def ema_cell(closes: Sequence[float], emas: Mapping[int, Series], t: ChecklistTh
             labels.append("POC, 100 > 150 > 200")
         elif e100 < e150 < e200:
             labels.append("NOC, 100 < 150 < 200")
+    e5_long, e50 = latest.get(5), latest.get(50)
+    if None not in (e5_long, e50, e100, e200):
+        # 5 > 50 > 100 with 50 > 200 implies every required pair (5 > 100, 5 > 200) as well.
+        if e5_long > e50 > e100 and e50 > e200:
+            labels.append("POC, 5 > 50 > 100 and 50 > 200")
+        elif e5_long < e50 < e100 and e50 < e200:
+            labels.append("NOC, 5 < 50 < 100 and 50 < 200")
     for slow in (13, 26):
         cross = _recent_cross(emas[5], emas[slow], t.recent_crossover_periods)
         if cross:
@@ -490,6 +514,186 @@ def ema_cell(closes: Sequence[float], emas: Mapping[int, Series], t: ChecklistTh
         values[f"ema_{p}_slope_pct"] = _round(slope * 100, 2) if slope is not None else None
         values[f"ema_{p}_trend"] = trends.get(p)
     return ChecklistCell(labels=labels, bias=bias, values=values, rule_ids=["ema"])
+
+
+# Evidence added inside existing rows (divergence, volume, breakouts, Fibonacci, chart patterns, Heikin-Ashi)
+
+FIB_LEVELS = (0.236, 0.382, 0.5, 0.618, 0.786)
+
+
+def _with_labels(cell: ChecklistCell, extra: Sequence[str], rule_id: str) -> ChecklistCell:
+    """Append evidence labels to an existing row cell; the cell's bias is left unchanged."""
+    if cell.bias is Bias.UNAVAILABLE or not extra:
+        return cell
+    return cell.model_copy(update={"labels": [*cell.labels, *extra], "rule_ids": [*cell.rule_ids, rule_id]})
+
+
+def _divergence_labels(
+    name: str, highs: Sequence[Pivot], lows: Sequence[Pivot], oscillator: Series, count: int, t: ChecklistThresholds
+) -> List[str]:
+    """Price swing vs oscillator swing over the last two confirmed pivots, when the latest is recent."""
+    recent_from = count - t.divergence_lookback
+    labels: List[str] = []
+    if len(highs) >= 2 and highs[-1].index >= recent_from:
+        before, latest = highs[-2], highs[-1]
+        o_before, o_latest = oscillator[before.index], oscillator[latest.index]
+        if None not in (o_before, o_latest) and latest.price > before.price and o_latest < o_before:
+            labels.append(f"Bearish divergence ({name})")
+    if len(lows) >= 2 and lows[-1].index >= recent_from:
+        before, latest = lows[-2], lows[-1]
+        o_before, o_latest = oscillator[before.index], oscillator[latest.index]
+        if None not in (o_before, o_latest) and latest.price < before.price and o_latest > o_before:
+            labels.append(f"Bullish divergence ({name})")
+    return labels
+
+
+def volume_cell(candles: Sequence[Candle], t: ChecklistThresholds) -> ChecklistCell:
+    """Latest closed candle volume against the average of the preceding candles."""
+    rule = "volume"
+    period = t.volume_average_period
+    if len(candles) < period + 1:
+        return _unavailable(_needs(period + 1), rule)
+    prior, current = candles[-period - 1 : -1], candles[-1]
+    if current.volume is None or any(c.volume is None for c in prior):
+        return _unavailable("Volume is not provided for this timeframe.", rule)
+    average = sum(c.volume for c in prior) / period
+    if average <= 0:
+        return _unavailable("Average volume is zero.", rule)
+    ratio = current.volume / average
+    if ratio < 1 - t.volume_near_average_band:
+        label = "Less than average volume"
+    elif ratio <= 1 + t.volume_near_average_band:
+        label = "Average volume"
+    elif ratio < t.volume_double_ratio:
+        label = "More than average volume"
+    else:
+        label = "Double average volume (high)"
+    return ChecklistCell(
+        labels=[label, f"{ratio:.2f}x the {period}-candle average"],
+        bias=Bias.NEUTRAL,
+        values={
+            "volume": _round(current.volume, 2),
+            "average_volume": _round(average, 2),
+            "volume_ratio": _round(ratio, 2),
+        },
+        rule_ids=[rule],
+    )
+
+
+def _breakout_labels(
+    candles: Sequence[Candle],
+    highs: Sequence[Pivot],
+    lows: Sequence[Pivot],
+    volume_ratio: Optional[float],
+    t: ChecklistThresholds,
+) -> List[str]:
+    """Latest closed candle crossing a confirmed swing level (prior close on one side, close on the other)."""
+    if len(candles) < 2:
+        return []
+    latest_index = len(candles) - 1
+    previous_close, close = candles[-2].close, candles[-1].close
+    volume_note = ""
+    if volume_ratio is not None:
+        volume_note = (
+            ", volume confirms" if volume_ratio >= 1 + t.volume_near_average_band else ", volume does not confirm"
+        )
+    for pivot in reversed([p for p in highs if p.index < latest_index]):
+        if previous_close <= pivot.price < close:
+            return [f"Breakout above {pivot.price:,.2f}{volume_note}"]
+    for pivot in reversed([p for p in lows if p.index < latest_index]):
+        if previous_close >= pivot.price > close:
+            return [f"Breakdown below {pivot.price:,.2f}{volume_note}"]
+    return []
+
+
+def _fibonacci_labels(
+    candles: Sequence[Candle],
+    swing_highs: Sequence[SwingPoint],
+    swing_lows: Sequence[SwingPoint],
+    t: ChecklistThresholds,
+) -> List[str]:
+    """Where the latest close sits inside the most recent swing leg (retracement of that leg)."""
+    if not candles or not swing_highs or not swing_lows:
+        return []
+    high, low = swing_highs[-1], swing_lows[-1]
+    span = high.price - low.price
+    if span <= 0:
+        return []
+    close = candles[-1].close
+    if high.index > low.index:
+        retrace, leg = (high.price - close) / span, "up-leg pullback"
+    else:
+        retrace, leg = (close - low.price) / span, "down-leg bounce"
+    if not 0 <= retrace <= 1:
+        return ["Close outside the latest swing leg (no Fibonacci zone)"]
+    nearest = min(FIB_LEVELS, key=lambda level: abs(level - retrace))
+    note = f", near {nearest * 100:.1f}%" if abs(nearest - retrace) <= t.fib_tolerance else ""
+    return [f"Fib {retrace * 100:.1f}% of {leg}{note}"]
+
+
+def chart_pattern_cell(
+    candles: Sequence[Candle], highs: Sequence[Pivot], lows: Sequence[Pivot], t: ChecklistThresholds
+) -> ChecklistCell:
+    """Double top / double bottom from the last two confirmed swing pivots; the neckline break is the trigger."""
+    rule = "chart-pattern"
+    if not candles:
+        return _unavailable("No closed candles are available.", rule)
+    start, close = len(candles) - t.pattern_lookback, candles[-1].close
+    labels: List[str] = []
+    bias = Bias.NEUTRAL
+    recent_highs = [p for p in highs if p.index >= start]
+    if len(recent_highs) >= 2:
+        first, second = recent_highs[-2], recent_highs[-1]
+        peak = max(first.price, second.price)
+        if (
+            second.index - first.index >= t.double_top_min_gap
+            and abs(second.price - first.price) / peak <= t.double_top_tolerance
+        ):
+            neckline = min(c.low for c in candles[first.index : second.index + 1])
+            if (peak - neckline) / peak >= t.double_top_tolerance:
+                if close < neckline:
+                    labels.append(f"Double Top, neckline {neckline:,.2f} broken")
+                    bias = Bias.BEARISH
+                else:
+                    labels.append(f"Double Top candidate, neckline {neckline:,.2f} holding")
+    recent_lows = [p for p in lows if p.index >= start]
+    if not labels and len(recent_lows) >= 2:
+        first, second = recent_lows[-2], recent_lows[-1]
+        trough = min(first.price, second.price)
+        if (
+            second.index - first.index >= t.double_top_min_gap
+            and abs(second.price - first.price) / trough <= t.double_top_tolerance
+        ):
+            neckline = max(c.high for c in candles[first.index : second.index + 1])
+            if (neckline - trough) / neckline >= t.double_top_tolerance:
+                if close > neckline:
+                    labels.append(f"Double Bottom, neckline {neckline:,.2f} broken")
+                    bias = Bias.BULLISH
+                else:
+                    labels.append(f"Double Bottom candidate, neckline {neckline:,.2f} holding")
+    if not labels:
+        labels.append("No double top / bottom")
+    return ChecklistCell(labels=labels, bias=bias, values={"close": _round(close)}, rule_ids=[rule])
+
+
+def heikin_ashi_labels(candles: Sequence[Candle]) -> List[str]:
+    """Colour of the latest Heikin-Ashi candle; a candle with no opposite-side wick is labelled as strong."""
+    if not candles:
+        return []
+    ha_open = ha_close = ha_high = ha_low = 0.0
+    for index, candle in enumerate(candles):
+        close_ = (candle.open + candle.high + candle.low + candle.close) / 4
+        open_ = (candle.open + candle.close) / 2 if index == 0 else (ha_open + ha_close) / 2
+        ha_open, ha_close = open_, close_
+        ha_high = max(candle.high, open_, close_)
+        ha_low = min(candle.low, open_, close_)
+    if ha_close > ha_open:
+        strong = " with no lower wick" if ha_low == ha_open else ""
+        return [f"Heikin-Ashi green{strong}"]
+    if ha_close < ha_open:
+        strong = " with no upper wick" if ha_high == ha_open else ""
+        return [f"Heikin-Ashi red{strong}"]
+    return ["Heikin-Ashi doji"]
 
 
 # Whole timeframe
@@ -535,6 +739,8 @@ def evaluate_timeframe(
         structure_highs, structure_lows, t.pivot_window, t.pivot_window
     )
     v2_atr = _at(s.atr, 1 if latest_candle_live else 0)
+    v2_swing_highs: List[SwingPoint] = []
+    v2_swing_lows: List[SwingPoint] = []
     if structure_candles:
         v2 = analyze_dow_structure_v2(
             v2_highs,
@@ -569,6 +775,7 @@ def evaluate_timeframe(
                     "last_swing_low_at": structure_candles[last_low.index].timestamp.isoformat(),
                 }
             )
+        v2_swing_highs, v2_swing_lows = v2.swing_highs, v2.swing_lows
         labels = [v2.label, v2.break_label]
         if v2.ambiguous_pivot_count:
             labels.append(f"{v2.ambiguous_pivot_count} ambiguous outside-bar pivot(s) omitted")
@@ -586,6 +793,7 @@ def evaluate_timeframe(
     else:
         cells["dow_structure_v2"] = _unavailable("No closed candles are available.", "dow-v2")
 
+    cells["weapon_volume"] = volume_cell(structure_candles, t)
     close = s.closes[-1]
     atr_value = _at(s.atr)
     location = locate_price(close, pivot_highs, pivot_lows, atr_value, t.sr_proximity_atr)
@@ -608,16 +816,26 @@ def evaluate_timeframe(
             LocationKind.ABOVE_PRIOR_RESISTANCE: Bias.BULLISH,
             LocationKind.BELOW_PRIOR_SUPPORT: Bias.BEARISH,
         }.get(location.kind, Bias.NEUTRAL)
-        cells["location"] = ChecklistCell(
-            labels=[location.label], bias=location_bias, values=level_values, rule_ids=["location"]
+        cells["location"] = _with_labels(
+            ChecklistCell(labels=[location.label], bias=location_bias, values=level_values, rule_ids=["location"]),
+            _fibonacci_labels(structure_candles, v2_swing_highs, v2_swing_lows, t),
+            "fib",
         )
         sr_labels = []
         if location.support is not None:
             sr_labels.append(f"Support {location.support:,.2f}")
         if location.resistance is not None:
             sr_labels.append(f"Resistance {location.resistance:,.2f}")
-        cells["support_resistance"] = ChecklistCell(
-            labels=sr_labels, bias=Bias.NEUTRAL, values=level_values, rule_ids=["sr"]
+        cells["support_resistance"] = _with_labels(
+            ChecklistCell(labels=sr_labels, bias=Bias.NEUTRAL, values=level_values, rule_ids=["sr"]),
+            _breakout_labels(
+                structure_candles,
+                v2_highs,
+                v2_lows,
+                cells["weapon_volume"].values.get("volume_ratio"),
+                t,
+            ),
+            "sr-breakout",
         )
 
     if len(candles) >= 2:
@@ -639,6 +857,9 @@ def evaluate_timeframe(
         )
     else:
         cells["price_action"] = _unavailable("Needs at least two candles.", "price_action")
+    cells["price_action"] = _with_labels(
+        cells["price_action"], heikin_ashi_labels(structure_candles), "heikin-ashi"
+    )
 
     patterns = detect_candle_patterns(
         candles,
@@ -656,6 +877,18 @@ def evaluate_timeframe(
     cells["macd"] = macd_cell(s.macd_line, s.macd_signal, t)
     cells["stochastic"] = stochastic_cell(s.stoch_k, s.stoch_d, t)
     cells["emas"] = ema_cell(s.closes, s.ema, t)
+
+    for row_id, name, oscillator in (
+        ("rsi", "RSI", s.rsi),
+        ("macd", "MACD", s.macd_line),
+        ("stochastic", "Stochastic %K", s.stoch_k),
+    ):
+        cells[row_id] = _with_labels(
+            cells[row_id],
+            _divergence_labels(name, v2_highs, v2_lows, oscillator, len(structure_candles), t),
+            f"{row_id}-divergence",
+        )
+    cells["chart_pattern"] = chart_pattern_cell(structure_candles, v2_highs, v2_lows, t)
 
     return TimeframeEvaluation(
         cells=cells, series=s, last_close=close, last_candle_at=candles[-1].timestamp

@@ -61,8 +61,9 @@ Eight timeframe columns in four layers, exactly as the worksheet. A timeframe th
 | 4 | Double & Triple Screen decision | Per-layer screen signal (BUY / SELL, tick, PCO/NCO state) | Yes |
 | 4 | | Double Screen decision, Triple Screen decision | Yes |
 | 4 | | What's your interpretation? | Manual |
-| 5 | Concepts / Setups / Chart patterns | Concept / chart pattern | Manual |
-| 5 | | Weapon / confirmation candle, volume of weapon candle | Manual |
+| 5 | Concepts / Setups / Chart patterns | Concept / chart pattern | Yes for Double Top / Double Bottom; other concepts manual |
+| 5 | | Weapon / confirmation candle | Manual |
+| 5 | | Volume of weapon candle | Yes (latest closed candle vs 20-candle average) |
 | 5 | | Momentum or swing setup | Manual |
 | 5 | | Follow-up candles; what-if analysis | Manual |
 
@@ -102,6 +103,14 @@ Double/Triple Screen decisions.
 | `macd_near_zero_fraction` | 0.10 | MACD within 10% of its recent 50-candle absolute range is "near zero line". |
 | `dmi_contracting_lookback` | 3 | `abs(+DI − −DI)` lower than 3 candles earlier is "contracting". |
 | `dow_significance_atr` | 0.5 | V2 reports whether both compared swing changes are at least 0.5 ATR; this does not alter structure or bias. |
+| `divergence_lookback` | 40 | The later of the last two confirmed price pivots must be within 40 closed candles for a divergence label. |
+| `volume_average_period` | 20 | Volume average taken over the 20 closed candles before the latest closed candle. |
+| `volume_near_average_band` | 0.2 | Volume ratio within ±20% of the average is "Average volume". |
+| `volume_double_ratio` | 2.0 | Volume ratio at or above 2.0 is "Double average volume (high)". |
+| `fib_tolerance` | 0.03 | A retracement within 3 percentage points of 23.6 / 38.2 / 50 / 61.8 / 78.6% also names that level. |
+| `pattern_lookback` | 60 | Double top / bottom pivots must fall within the last 60 closed candles. |
+| `double_top_tolerance` | 0.015 | Two peaks (or troughs) within 1.5% of each other, with the neckline at least 1.5% away from them. |
+| `double_top_min_gap` | 10 | Two peaks (or troughs) must be at least 10 candles apart. |
 
 Insufficient candles for any setting produce an **unavailable** cell with a reason; they never produce a neutral label.
 
@@ -126,6 +135,8 @@ Fewer than two swing highs and two swing lows → unavailable.
 - Swing levels = all confirmed swing highs and lows. Support = nearest level at or below the latest close; resistance = nearest level above it. A broken level therefore changes role (resistance turning into support, the PAPA "impact line").
 - `Near Support` / `Near Resistance` when within `sr_proximity_atr × ATR` (the closer one wins if both).
 - No level above → `Above prior resistance`; no level below → `Below prior support`; otherwise `Mid-range`.
+- **Breakout / breakdown** (label on the `support_resistance` row, bias unchanged): the latest closed candle's close crosses a confirmed swing high (`Breakout above <level>`) or swing low (`Breakdown below <level>`), with the prior close on the other side. A volume note follows: `volume confirms` when the volume ratio is at least 1 + `volume_near_average_band`, otherwise `volume does not confirm`; the note is omitted when volume is unavailable.
+- **Fibonacci zone** (label on the `location` row, bias unchanged): the latest closed close is measured inside the most recent Dow v2 swing leg. An up-leg (low, then high) reads `Fib <x>% of up-leg pullback` = (high − close) / (high − low); a down-leg (high, then low) reads `Fib <x>% of down-leg bounce` = (close − low) / (high − low). When the retracement is within `fib_tolerance` of 23.6, 38.2, 50, 61.8 or 78.6%, `, near <level>%` is appended. A close outside the leg reads `Close outside the latest swing leg (no Fibonacci zone)`.
 - Values include both levels, their candle timestamps, and the distance in ATR and percent.
 
 ### 2. Advanced Dow + price action (PAPA Dow Theory Advanced; Candles Imp)
@@ -148,7 +159,9 @@ All matching labels are listed. Bias: close beyond the previous high/low decides
 
 ### 2. Special candles (SMM Summary; PAPA Candles Imp)
 
-Detected on the latest two/three candles: Bullish/Bearish Engulf, Bullish/Bearish Piercing, Hammer, Inverted Hammer, Hanging Man, Doji, Spinning Top, Morning Star, Evening Star, Mother candle (latest candle inside the previous candle's range). The label adds `in Support` / `at Resistance` when the location rule above says near. No pattern → `No special candle`, bias neutral.
+Detected on the latest two/three candles: Bullish/Bearish Engulf, Bullish/Bearish Piercing, Hammer, Inverted Hammer, Hanging Man, Doji, Spinning Top, Morning Star, Evening Star, Mother candle (latest candle inside the previous candle's range), Bullish Harami (latest bullish body inside the previous bearish body), Three White Soldiers and Three Black Crows (three candles closing progressively in one direction, each opening inside the prior real body). The label adds `in Support` / `at Resistance` when the location rule above says near. No pattern → `No special candle`, bias neutral.
+
+- **Heikin-Ashi colour** (appended to the `price_action` row, bias unchanged): computed from the closed candles (HA close = (O+H+L+C)/4; HA open = average of the previous HA open and close, seeded with (O+C)/2). The latest HA candle reads `Heikin-Ashi green`, `Heikin-Ashi red` or `Heikin-Ashi doji`. `with no lower wick` / `with no upper wick` is added when the HA body reaches that extreme.
 
 ### 3. Bollinger Band (PAPA BB Indicators Setups)
 
@@ -161,6 +174,14 @@ Detected on the latest two/three candles: Bullish/Bearish Engulf, Bullish/Bearis
 | Otherwise | `Price is Above Median` / `Price is Below Median` / `Price is Near Median` | bullish / bearish / neutral |
 
 Append `Bands are Flat` or `Bands Expanding` / `Bands Contracting`. Values: upper, basis, lower, band width, %B.
+
+Three-standard-deviation excursions are appended as labels, bias unchanged: `Beyond +3 SD band` when High ≥ basis + 3σ, and `Beyond -3 SD band` when Low ≤ basis − 3σ, where σ = (upper − basis) / `bb_stddev`.
+
+### 3. Divergence (RSI, MACD, Stochastic %K)
+
+- Uses the last two confirmed price pivots of closed candles (the same pivots as Dow v2). Bullish: the later swing low is lower than the earlier one while the oscillator's value at that candle is higher. Bearish: the later swing high is higher while the oscillator is lower.
+- Reported only when the later pivot is within `divergence_lookback` candles.
+- Labels `Bullish divergence (RSI)`, `Bullish divergence (MACD)`, `Bullish divergence (Stochastic %K)` and the matching `Bearish` labels are appended to the row. Bias is unchanged: divergence is a warning to be read with the rest of the row, not a trigger.
 
 ### 3. RSI (SMM All Indicators; PAPA)
 
@@ -213,6 +234,7 @@ Prefixed with `Raising` / `Falling` (compared with `slope_lookback`), e.g. `Rais
 
 - Price relation for each of 5, 13, 26, 50 (and 100/150/200 where available): `Price > 5`, `Price < 50`, …
 - Stack: `POC, 5 > 13 > 26` / `NOC, 5 < 13 < 26`; long stack `POC, 100 > 150 > 200` / `NOC, 100 < 150 < 200`.
+- Extended long stack: `POC, 5 > 50 > 100 and 50 > 200` / `NOC, 5 < 50 < 100 and 50 < 200`. These are appended labels; the colour rule above is unchanged.
 - Crossover: `5 EMA PCO with 13 / 26 EMA` or `NCO` within the last 3 periods (SMM decision sheet).
 - Colour (bias): bullish (green) when the 5 EMA is above 13 and 26 (`POC` / PCO state, 5 > 13 > 26); bearish (red) when below (`NOC` / NCO state, 5 < 13 < 26); otherwise neutral. Price relative to the 50 EMA is shown as a label but does not change the colour.
 - Stack: `EMAs intermingled` when 5, 13 and 26 are not in a PCO or NCO order.
@@ -266,6 +288,18 @@ Double Screen wording uses the pair's layer names, e.g. `No Buy — wait for TID
 If a required timeframe is unavailable or stale, the decision is `INCOMPLETE` with the missing timeframe named.
 
 Every decision displays the caption: *Checklist signal derived from the SMM Double/Triple Screen rules — not financial advice.*
+
+### 5. Volume of weapon candle
+
+- Volume of the latest closed candle divided by the average volume of the 20 closed candles before it (`volume_ratio`).
+- Labels: `Less than average volume` (below 0.8×), `Average volume` (0.8× to 1.2×), `More than average volume` (1.2× to 2×), `Double average volume (high)` (2× or more), plus `<ratio>x the 20-candle average`. Bias neutral.
+- Unavailable (with a reason) when the source supplies no volume for that timeframe.
+
+### 5. Chart patterns (Double Top / Double Bottom)
+
+- Uses confirmed pivots of closed candles within `pattern_lookback`. A double top needs two peaks within `double_top_tolerance` of each other, at least `double_top_min_gap` candles apart, with a neckline (the lowest low between the peaks) at least `double_top_tolerance` below them.
+- Latest closed close above or below the neckline decides the state. Double top: `Double Top candidate, neckline <x> holding` (neutral) while the close is above the neckline, `Double Top, neckline <x> broken` (bearish) once it closes below. Double bottom mirrors this with `Double Bottom ...` and a bullish break.
+- No qualifying pair → `No double top / bottom`, neutral. Other chart patterns remain manual.
 
 ## API
 
@@ -360,7 +394,7 @@ The Bollinger difference comes only from the basis: the user's chart uses an **E
 ## Boundaries
 
 - **Always:** read-only TradingView access; show source and freshness; treat unavailable data explicitly; keep thresholds in the versioned profile; run focused and full tests before each commit.
-- **Ask first:** adding symbols outside the watchlist snapshot; adding new dependencies (no new Python/JS dependency is planned); changing existing API contracts; enabling heuristic chart-pattern detection.
+- **Ask first:** adding symbols outside the watchlist snapshot; adding new dependencies (no new Python/JS dependency is planned); changing existing API contracts; enabling heuristic chart-pattern detection beyond Double Top / Double Bottom (approved for those two only).
 - **Never:** place orders or present output as a trade instruction; modify TradingView charts, watchlists, or layouts; log OAuth tokens; fabricate values for missing candles.
 
 ## Success criteria
@@ -386,10 +420,11 @@ Confirmed by the user on 2026-10-09:
 | Candle | Latest candle even if forming, labelled live |
 | Thresholds | Defaults above, configurable in the profile |
 | Bollinger basis | Standard SMA basis kept, even though the user's chart uses an EMA basis (difference 0.04% on validation) |
+| Added checklist evidence | Nine items approved on 2026-10-15 as labels inside existing rows (no new rows). Divergence, volume, breakout, Fibonacci, Heikin-Ashi, 3 SD and extended EMA stack labels leave bias unchanged; Double Top / Bottom sets bias only on a neckline break |
 
 ## Open questions
 
 - Indices (`NSE:NIFTY`, `NSE:BANKNIFTY`, `NSE:INDIAVIX`) have no volume on TradingView; volume evidence is shown only when candles carry volume.
 - `NSE:INDIAVIX` is a volatility index; the checklist is calculated the same way but its bias colours do not mean market direction. The UI shows a note for it.
 - MCX session close is taken as 23:30 IST; the 23:55 schedule during US daylight-saving time is not modelled. Holiday calendars are not modelled for any exchange.
-- Angular trendlines and chart patterns are manual in v1; heuristic detection may be proposed later as a separate, approved change.
+- Angular trendlines and chart patterns other than Double Top / Double Bottom are manual; any further heuristic detection needs separate approval.

@@ -187,6 +187,7 @@ def stoch_case(k, d):
 def test_stochastic_buy_from_oversold():
     cell = stoch_case([12, 10, 14, 18], [15, 13, 12, 14])
     assert cell.labels[0] == "(< 20) Buy Signal from OverSold (10 - 20)"
+    assert cell.labels[1] == "%K 18.00 / %D 14.00"
     assert cell.bias is Bias.BULLISH
 
 

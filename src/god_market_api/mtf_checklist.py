@@ -398,7 +398,7 @@ def stochastic_cell(k: Series, d: Series, t: ChecklistThresholds) -> ChecklistCe
         bias = Bias.NEUTRAL
         headline = "Overbought (> 80)" if k_value > 80 else "Oversold (< 20)" if k_value < 20 else "Not Clear"
 
-    labels = [headline]
+    labels = [headline, f"%K {k_value:.2f} / %D {d_value:.2f}"]
     if not cross and tick in ("up", "down"):
         labels.append("Up tick" if tick == "up" else "Down tick")
     labels.append("PCO state" if k_value > d_value else "NCO state" if k_value < d_value else "K = D")

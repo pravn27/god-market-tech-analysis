@@ -206,6 +206,7 @@ Prefixed with `Raising` / `Falling` (compared with `slope_lookback`), e.g. `Rais
 - Zone: `> 80 Overbought`, `< 20 Oversold`, otherwise `Neutral zone`.
 - `PCO Buy Signal` when %K crossed above %D within `recent_crossover_periods`; `NCO Sell Signal` when crossed below.
 - Wording examples: `(< 20) Buy Signal from OverSold (10 - 20)`, `(> 80) NCO Sell Signal from OverBought (80 - 90)`, `(Near 80) PCO Buy Signal Up tick`.
+- Every cell also shows the current values as `%K <k> / %D <d>` (two decimals, the same numbers stored in `values.k` and `values.d`), directly after the headline.
 - No recent crossover and neutral zone → `Not Clear`, neutral.
 
 ### 3. EMAs (SMM All Indicators; Summary)

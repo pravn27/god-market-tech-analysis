@@ -105,6 +105,7 @@ Double/Triple Screen decisions.
 | `dmi_contracting_lookback` | 3 | `abs(+DI − −DI)` lower than 3 candles earlier is "contracting". |
 | `dow_significance_atr` | 0.5 | V2 reports whether both compared swing changes are at least 0.5 ATR; this does not alter structure or bias. |
 | `divergence_lookback` | 40 | The later of the last two confirmed price pivots must be within 40 closed candles for a divergence label. |
+| `divergence_confirm_bars` | 2 | A swing counts for divergence once 2 closed candles follow it (the Dow pivots still use 5). |
 | `volume_average_period` | 20 | Volume average taken over the 20 closed candles before the latest closed candle. |
 | `volume_near_average_band` | 0.2 | Volume ratio within ±20% of the average is "Average volume". |
 | `volume_double_ratio` | 2.0 | Volume ratio at or above 2.0 is "Double average volume (high)". |
@@ -201,7 +202,8 @@ Three-standard-deviation excursions are appended as labels, bias unchanged: `Bey
 
 Own row, placed directly after EMAs. Its labels are collected from all three oscillators.
 
-- Uses the last two confirmed price pivots of closed candles (the same pivots as Dow v2). Bullish: the later swing low is lower than the earlier one while the oscillator's value at that candle is higher. Bearish: the later swing high is higher while the oscillator is lower.
+- Uses the last two confirmed price swings of closed candles: a swing high or low needs 5 bars before it and 2 bars after it (`divergence_confirm_bars`). The Dow pivots still wait 5 bars after, so divergence can see the latest top one refresh earlier. Bullish: the later swing low is lower than the earlier one while the oscillator's value at that candle is higher. Bearish: the later swing high is higher while the oscillator is lower.
+- The oscillator is read at the exact bar of each swing; no tolerance band is applied.
 - Reported only when the later pivot is within `divergence_lookback` candles.
 - Labels `Bullish divergence (RSI)`, `Bullish divergence (MACD)`, `Bullish divergence (Stochastic %K)` and the matching `Bearish` labels are listed in the row. When none apply, the row shows `No divergence (RSI, MACD, Stochastic %K)`.
 - Bias is always neutral: divergence is a warning to be read with the other indicator rows, not a trigger.
@@ -477,6 +479,7 @@ Confirmed by the user on 2026-10-09:
 | Thresholds | Defaults above, configurable in the profile |
 | Bollinger basis | Standard SMA basis kept, even though the user's chart uses an EMA basis (difference 0.04% on validation) |
 | Added checklist evidence | Nine items approved on 2026-10-15 as labels inside existing rows (no new rows). Divergence, volume, breakout, Fibonacci, Heikin-Ashi, 3 SD and extended EMA stack labels leave bias unchanged; Double Top / Bottom sets bias only on a neckline break |
+| Divergence confirmation | Divergence swings confirm after 2 closed bars instead of 5 (`divergence_confirm_bars`), chosen by the user on 2026-10-16. Reason: the 5-bar rule hid the 16 Oct 1H top (57.94, %K 94.4 vs 57.53, %K 94.6), so 1H showed a stale bullish label. Dow structure keeps 5 bars |
 | Divergence row | Divergence moved out of the RSI, MACD and Stochastic rows into its own row directly after EMAs, so the three oscillator readings and their divergence sit in one place. Neutral bias. This supersedes the "no new rows" wording above for divergence only |
 
 ## Open questions

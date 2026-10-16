@@ -11,6 +11,7 @@ from god_market_api.mtf_checklist import (
     _fibonacci_labels,
     adx_cell,
     divergence_cell,
+    divergence_pivots,
     bollinger_cell,
     chart_pattern_cell,
     dmi_cell,
@@ -22,7 +23,7 @@ from god_market_api.mtf_checklist import (
     stochastic_cell,
     volume_cell,
 )
-from god_market_api.price_structure import Pivot, detect_candle_patterns
+from god_market_api.price_structure import Pivot, detect_candle_patterns, find_pivots
 
 T = ChecklistThresholds()
 
@@ -440,6 +441,28 @@ def test_divergence_row_states_when_there_is_none():
     oscillator[10], oscillator[50] = 60.0, 70.0
     cell = divergence_cell((("RSI", oscillator),), highs, [], 60, T)
     assert cell.labels == ["No divergence (RSI, MACD, Stochastic %K)"]
+
+
+def divergence_fixture():
+    """A top at index 20 (57.5, %K 94.6) and a higher top at index 40 (57.9, %K 94.4), with only two bars after it."""
+    highs = [50.0] * 43  # flat bars never form a pivot, so only the two peaks are swings
+    highs[20], highs[40] = 57.5, 57.9
+    oscillator = [50.0] * 43
+    oscillator[20], oscillator[40] = 94.6, 94.4
+    return highs, [49.0] * 43, oscillator
+
+
+def test_divergence_confirms_a_top_after_two_bars_not_five():
+    highs, lows, _ = divergence_fixture()
+    assert 40 not in [p.index for p in find_pivots(highs, lows, T.pivot_window, T.pivot_window)[0]]
+    assert [p.index for p in divergence_pivots(highs, lows, T)[0]][-2:] == [20, 40]
+
+
+def test_latest_higher_top_with_lower_stochastic_is_bearish_divergence():
+    highs, lows, oscillator = divergence_fixture()
+    div_highs, div_lows = divergence_pivots(highs, lows, T)
+    cell = divergence_cell((("Stochastic %K", oscillator),), div_highs, div_lows, len(highs), T)
+    assert cell.labels == ["Bearish divergence (Stochastic %K)"]
 
 
 def test_divergence_row_is_unavailable_without_two_confirmed_swings():

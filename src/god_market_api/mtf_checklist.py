@@ -51,6 +51,8 @@ class ChecklistThresholds:
     wick_tolerance: float = 0.02
     dow_significance_atr: float = 0.5
     divergence_lookback: int = 40
+    # Bars after a swing before it counts for divergence (the Dow pivot window stays at pivot_window).
+    divergence_confirm_bars: int = 2
     volume_average_period: int = 20
     volume_near_average_band: float = 0.2
     volume_double_ratio: float = 2.0
@@ -572,6 +574,13 @@ def _divergence_labels(
     return labels
 
 
+def divergence_pivots(
+    highs: Sequence[float], lows: Sequence[float], t: ChecklistThresholds
+) -> tuple[List[Pivot], List[Pivot]]:
+    """Swing points for divergence: same left side as Dow, confirmed after fewer bars so the latest top is seen."""
+    return find_pivots(highs, lows, t.pivot_window, t.divergence_confirm_bars)
+
+
 def divergence_cell(
     oscillators: Sequence[tuple[str, Series]],
     highs: Sequence[Pivot],
@@ -922,10 +931,11 @@ def evaluate_timeframe(
     cells["macd"] = macd_cell(s.macd_line, s.macd_signal, t)
     cells["stochastic"] = stochastic_cell(s.stoch_k, s.stoch_d, t)
     cells["emas"] = ema_cell(s.closes, s.ema, t)
+    div_highs, div_lows = divergence_pivots(structure_highs, structure_lows, t)
     cells["divergence"] = divergence_cell(
         (("RSI", s.rsi), ("MACD", s.macd_line), ("Stochastic %K", s.stoch_k)),
-        v2_highs,
-        v2_lows,
+        div_highs,
+        div_lows,
         len(structure_candles),
         t,
     )

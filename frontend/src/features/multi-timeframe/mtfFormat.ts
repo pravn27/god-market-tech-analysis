@@ -44,7 +44,7 @@ export function decisionTone(decision: string): 'buy' | 'sell' | 'neutral' | 'in
 
 export function formatTimestamp(value: string | null) {
   if (!value) return '—'
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
+  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', hour12: true }).format(new Date(value))
 }
 
 export function formatValue(value: boolean | number | string | null) {

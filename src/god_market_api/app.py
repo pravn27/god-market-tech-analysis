@@ -6,6 +6,7 @@ from typing import Literal, Optional
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from .desktop_bridge import TradingViewDesktopWatchlistReader
+from .desktop_candles import DesktopChartCandleProvider, FallbackChartProvider
 from .global_market import GlobalMarketLiveSnapshotProvider, GlobalMarketSnapshotProvider, WatchlistGroupSource
 from .models import (
     AnalysisTimeframe,
@@ -22,7 +23,7 @@ from .mtf_live import MtfLiveHub, wait_for_client_disconnect
 from .mtf_orchestrator import MultiTimeframeContextOrchestrator
 from .oauth import OfficialMCPOAuthCoordinator
 from .providers import ChartContextProvider, DataSourceUnavailableError, OfficialMCPProvider
-from .watchlist_source import OfficialWatchlistSource
+from .watchlist_source import DesktopWatchlistSectionSource, FallbackWatchlistSource, OfficialWatchlistSource
 
 
 def create_app(
@@ -34,16 +35,27 @@ def create_app(
     mtf_analysis: Optional[MultiTimeframeAnalysisService] = None,
     mtf_live: Optional[MtfLiveHub] = None,
     watchlist_source: Optional[WatchlistGroupSource] = None,
+    desktop_candles: Optional[ChartContextProvider] = None,
 ) -> FastAPI:
     oauth_coordinator = oauth or OfficialMCPOAuthCoordinator()
     active_provider = provider or OfficialMCPProvider(tool_caller=oauth_coordinator)
-    active_mtf_orchestrator = mtf_orchestrator or MultiTimeframeContextOrchestrator(active_provider)
+    active_desktop_watchlist_reader = desktop_watchlist_reader or TradingViewDesktopWatchlistReader.from_environment()
+    # Injected providers (tests, fixtures) never reach the Desktop fallbacks; they use only what was injected.
+    # With the live official provider, the Desktop bridge is the fallback for both pages.
+    active_desktop_candles = desktop_candles or DesktopChartCandleProvider.from_environment()
+    active_mtf_provider = (
+        FallbackChartProvider(active_provider, active_desktop_candles) if provider is None else active_provider
+    )
+    active_mtf_orchestrator = mtf_orchestrator or MultiTimeframeContextOrchestrator(active_mtf_provider)
     active_mtf_analysis = mtf_analysis or MultiTimeframeAnalysisService(active_mtf_orchestrator)
     active_mtf_live = mtf_live or MtfLiveHub(active_mtf_analysis, active_mtf_orchestrator)
-    active_desktop_watchlist_reader = desktop_watchlist_reader or TradingViewDesktopWatchlistReader.from_environment()
-    # An injected price provider (tests, fixtures) keeps the recorded watchlist unless a source is given explicitly.
     active_watchlist_source = watchlist_source or (
-        OfficialWatchlistSource(oauth_coordinator) if provider is None else None
+        FallbackWatchlistSource(
+            OfficialWatchlistSource(oauth_coordinator),
+            DesktopWatchlistSectionSource(active_desktop_watchlist_reader),
+        )
+        if provider is None
+        else None
     )
     active_global_market_provider = global_market_provider or GlobalMarketLiveSnapshotProvider(
         active_provider,

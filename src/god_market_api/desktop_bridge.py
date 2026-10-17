@@ -1,4 +1,9 @@
-"""Read-only quotes from the active TradingView Desktop watchlist."""
+"""Read-only access to TradingView Desktop through the local bridge CLI.
+
+The bridge is the fallback for the official TradingView MCP. It reads the visible
+watchlist rows and, when needed, the candles of the chart that is open in
+TradingView Desktop. Chart reads change the open chart, so callers must restore it.
+"""
 
 import asyncio
 import json
@@ -33,6 +38,72 @@ class DesktopWatchlistQuoteSnapshot:
     observed_at: datetime
 
 
+class TradingViewDesktopCli:
+    """Runs one bridge CLI command and returns its parsed JSON output."""
+
+    def __init__(
+        self,
+        cli_path: str | Path | None,
+        *,
+        node_executable: str = "node",
+        timeout_seconds: float = 8.0,
+    ) -> None:
+        self._cli_path = Path(cli_path).expanduser() if cli_path else None
+        self._node_executable = node_executable
+        self._timeout_seconds = timeout_seconds
+
+    @classmethod
+    def from_environment(cls, *, timeout_seconds: float = 8.0) -> "TradingViewDesktopCli":
+        return cls(
+            os.environ.get("TRADINGVIEW_DESKTOP_BRIDGE_CLI"),
+            node_executable=os.environ.get("TRADINGVIEW_DESKTOP_BRIDGE_NODE") or "node",
+            timeout_seconds=timeout_seconds,
+        )
+
+    @property
+    def configured(self) -> bool:
+        return self._cli_path is not None
+
+    async def run(self, *args: str) -> object:
+        if self._cli_path is None:
+            raise DataSourceUnavailableError(
+                "The TradingView Desktop bridge is not configured. Set TRADINGVIEW_DESKTOP_BRIDGE_CLI."
+            )
+        if not self._cli_path.is_file():
+            raise DataSourceUnavailableError("The configured TradingView Desktop bridge CLI was not found.")
+        if not shutil.which(self._node_executable):
+            raise DataSourceUnavailableError("Node.js is not available for the TradingView Desktop bridge.")
+
+        try:
+            process = await asyncio.create_subprocess_exec(
+                self._node_executable,
+                str(self._cli_path),
+                *args,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except OSError as error:
+            raise DataSourceUnavailableError("The TradingView Desktop bridge command could not be started.") from error
+        try:
+            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=self._timeout_seconds)
+        except asyncio.TimeoutError as error:
+            process.kill()
+            await process.wait()
+            raise DataSourceUnavailableError(
+                f"The TradingView Desktop bridge command timed out. {DESKTOP_START_HINT}"
+            ) from error
+        except asyncio.CancelledError:
+            process.kill()
+            await process.wait()
+            raise
+        if process.returncode != 0:
+            raise DataSourceUnavailableError(f"The TradingView Desktop bridge command failed. {DESKTOP_START_HINT}")
+        try:
+            return json.loads(stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise DataSourceUnavailableError("The Desktop bridge returned an unreadable response.") from error
+
+
 class TradingViewDesktopWatchlistReader:
     """Read visible active-watchlist quote rows through the local bridge CLI.
 
@@ -50,8 +121,9 @@ class TradingViewDesktopWatchlistReader:
         timeout_seconds: float = 8.0,
     ) -> None:
         self._cli_path = Path(cli_path).expanduser() if cli_path else None
-        self._node_executable = node_executable
-        self._timeout_seconds = timeout_seconds
+        self._cli = TradingViewDesktopCli(
+            cli_path, node_executable=node_executable, timeout_seconds=timeout_seconds
+        )
         self._last_success_at: datetime | None = None
         self._last_error: str | None = None
 
@@ -89,45 +161,12 @@ class TradingViewDesktopWatchlistReader:
         self._last_success_at = snapshot.observed_at
         return snapshot
 
-    async def _read_quotes(self, expected_symbols: Sequence[str]) -> DesktopWatchlistQuoteSnapshot:
-        if self._cli_path is None:
-            raise DataSourceUnavailableError(
-                "The Desktop watchlist fallback is not configured. Set TRADINGVIEW_DESKTOP_BRIDGE_CLI."
-            )
-        if not self._cli_path.is_file():
-            raise DataSourceUnavailableError("The configured TradingView Desktop bridge CLI was not found.")
-        if not shutil.which(self._node_executable):
-            raise DataSourceUnavailableError("Node.js is not available for the TradingView Desktop bridge.")
+    async def watchlist_payload(self) -> object:
+        """Raw ``watchlist get`` output, including section headers when the bridge provides them."""
+        return await self._cli.run("watchlist", "get")
 
-        try:
-            process = await asyncio.create_subprocess_exec(
-                self._node_executable,
-                str(self._cli_path),
-                "watchlist",
-                "get",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-        except OSError as error:
-            raise DataSourceUnavailableError("The TradingView Desktop watchlist read could not be started.") from error
-        try:
-            stdout, _ = await asyncio.wait_for(process.communicate(), timeout=self._timeout_seconds)
-        except asyncio.TimeoutError as error:
-            process.kill()
-            await process.wait()
-            raise DataSourceUnavailableError(
-                f"The TradingView Desktop watchlist read timed out. {DESKTOP_START_HINT}"
-            ) from error
-        except asyncio.CancelledError:
-            process.kill()
-            await process.wait()
-            raise
-        if process.returncode != 0:
-            raise DataSourceUnavailableError(f"The TradingView Desktop watchlist read failed. {DESKTOP_START_HINT}")
-        try:
-            payload = json.loads(stdout.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise DataSourceUnavailableError("The Desktop bridge returned an unreadable watchlist response.") from error
+    async def _read_quotes(self, expected_symbols: Sequence[str]) -> DesktopWatchlistQuoteSnapshot:
+        payload = await self.watchlist_payload()
         return parse_watchlist_payload(payload, expected_symbols)
 
 
@@ -147,6 +186,7 @@ def parse_watchlist_payload(
     rows = {str(item.get("symbol", "")).strip().upper(): item for item in raw_symbols}
     rows.pop("", None)
     matched = {symbol: item for symbol, item in rows.items() if symbol in approved}
+
     # A majority of foreign rows means another watchlist is selected; never borrow its quotes.
     if not matched or len(matched) * 2 <= len(rows):
         raise DataSourceUnavailableError(

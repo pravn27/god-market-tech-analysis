@@ -48,13 +48,18 @@ class WatchlistUnavailableError(RuntimeError):
     """The TradingView watchlist could not be read and no earlier reading exists."""
 
 
+WATCHLIST_ORIGIN_OFFICIAL = "official_mcp"
+WATCHLIST_ORIGIN_DESKTOP = "desktop_bridge"
+
+
 @dataclass(frozen=True)
 class WatchlistRead:
-    """Groups read from the live watchlist; ``error`` is set when older data is shown instead."""
+    """Groups read from the live watchlist; ``error`` is set when older data or the Desktop fallback is used."""
 
     groups: tuple[WatchlistGroupDefinition, ...]
     read_at: datetime
     error: str | None = None
+    origin: str = WATCHLIST_ORIGIN_OFFICIAL
 
 
 class WatchlistGroupSource(Protocol):
@@ -357,6 +362,11 @@ class GlobalMarketLiveSnapshotProvider:
                 f"TradingView watchlist could not be read ({error}); showing the recorded 2026-10-07 snapshot.",
             )
         stamp = read.read_at.strftime("%H:%M UTC")
+        if read.origin == WATCHLIST_ORIGIN_DESKTOP:
+            return (
+                read.groups,
+                f"TradingView MCP watchlist unavailable ({read.error}); sections read from TradingView Desktop at {stamp}.",
+            )
         if read.error:
             return read.groups, f"TradingView watchlist refresh failed ({read.error}); showing groups read at {stamp}."
         return read.groups, f"Watchlist groups read live from TradingView {WATCHLIST_NAME} at {stamp}."

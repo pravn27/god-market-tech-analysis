@@ -210,3 +210,16 @@ def test_provider_falls_back_to_the_recorded_groups_when_the_watchlist_cannot_be
         "TradingView watchlist could not be read (MCP unavailable); showing the recorded 2026-10-07 snapshot."
     )
     assert [group.name for group in snapshot.groups] == [group.name for group in RECORDED_WATCHLIST_GROUPS]
+
+
+def test_provider_says_the_sections_came_from_the_desktop_when_the_mcp_is_unavailable() -> None:
+    from god_market_api.global_market import WATCHLIST_ORIGIN_DESKTOP, WatchlistRead
+
+    read = WatchlistRead(
+        groups=RECORDED_WATCHLIST_GROUPS, read_at=NOW, error="MCP session expired", origin=WATCHLIST_ORIGIN_DESKTOP
+    )
+    snapshot = _snapshot(StaticWatchlistSource(read))
+
+    assert snapshot.warnings[1] == (
+        "TradingView MCP watchlist unavailable (MCP session expired); sections read from TradingView Desktop at 09:30 UTC."
+    )

@@ -41,9 +41,31 @@ class WatchlistGroupDefinition:
     instruments: tuple[WatchlistInstrumentDefinition, ...] = ()
 
 
-# Read-only snapshot captured from PS_Global_Indices on 2026-10-07. It is not
-# a replacement universe and must not be changed without the separate coverage
-# dry-run and the user's explicit confirmation.
+RECORDED_WATCHLIST_WARNING = "Watchlist groups use the read-only PS_Global_Indices snapshot recorded on 2026-10-07."
+
+
+class WatchlistUnavailableError(RuntimeError):
+    """The TradingView watchlist could not be read and no earlier reading exists."""
+
+
+@dataclass(frozen=True)
+class WatchlistRead:
+    """Groups read from the live watchlist; ``error`` is set when older data is shown instead."""
+
+    groups: tuple[WatchlistGroupDefinition, ...]
+    read_at: datetime
+    error: str | None = None
+
+
+class WatchlistGroupSource(Protocol):
+    """Boundary for reading the watchlist sections that the Global Market page displays."""
+
+    async def read(self) -> WatchlistRead:
+        ...
+
+
+# Read-only snapshot captured from PS_Global_Indices on 2026-10-07. It is only the
+# fallback used when the live watchlist cannot be read; it is not a replacement universe.
 RECORDED_WATCHLIST_GROUPS = (
     WatchlistGroupDefinition(
         name="USA",
@@ -290,6 +312,7 @@ class GlobalMarketLiveSnapshotProvider:
         provider: ChartContextProvider,
         *,
         desktop_watchlist_reader: TradingViewDesktopWatchlistReader | None = None,
+        watchlist_source: WatchlistGroupSource | None = None,
         watchlist_groups: Sequence[WatchlistGroupDefinition] = RECORDED_WATCHLIST_GROUPS,
         clock: Callable[[], datetime] = _utc_now,
         max_provider_concurrency: int = 6,
@@ -313,6 +336,7 @@ class GlobalMarketLiveSnapshotProvider:
             raise ValueError("cache_for must not be negative.")
         self._provider = provider
         self._desktop_watchlist_reader = desktop_watchlist_reader
+        self._watchlist_source = watchlist_source
         self._watchlist_groups = tuple(watchlist_groups)
         self._clock = clock
         self._service = GlobalMarketSnapshotService(clock=clock)
@@ -320,6 +344,22 @@ class GlobalMarketLiveSnapshotProvider:
         self._cache_for = cache_for
         self._snapshot_cache: dict[str, tuple[datetime, GlobalMarketSnapshot]] = {}
         self._snapshot_lock = asyncio.Lock()
+
+    async def _resolve_watchlist(self) -> tuple[tuple[WatchlistGroupDefinition, ...], str]:
+        """Sections from the live TradingView watchlist, or the fallback, with a warning that says which."""
+        if self._watchlist_source is None:
+            return self._watchlist_groups, RECORDED_WATCHLIST_WARNING
+        try:
+            read = await self._watchlist_source.read()
+        except WatchlistUnavailableError as error:
+            return (
+                self._watchlist_groups,
+                f"TradingView watchlist could not be read ({error}); showing the recorded 2026-10-07 snapshot.",
+            )
+        stamp = read.read_at.strftime("%H:%M UTC")
+        if read.error:
+            return read.groups, f"TradingView watchlist refresh failed ({read.error}); showing groups read at {stamp}."
+        return read.groups, f"Watchlist groups read live from TradingView {WATCHLIST_NAME} at {stamp}."
 
     async def get_snapshot(self, timeframe: str) -> GlobalMarketSnapshot:
         """Read each approved item with bounded concurrency and preserve every failure."""
@@ -330,7 +370,8 @@ class GlobalMarketLiveSnapshotProvider:
             cached = self._cached_snapshot(timeframe)
             if cached is not None:
                 return cached
-            expected_symbols = [item.symbol for group in self._watchlist_groups for item in group.instruments]
+            definitions, watchlist_warning = await self._resolve_watchlist()
+            expected_symbols = [item.symbol for group in definitions for item in group.instruments]
             desktop_task = (
                 asyncio.create_task(_read_desktop_quotes(self._desktop_watchlist_reader, expected_symbols))
                 if self._desktop_watchlist_reader is not None
@@ -346,11 +387,11 @@ class GlobalMarketLiveSnapshotProvider:
                     if isinstance(await desktop_task, DesktopWatchlistQuoteSnapshot):
                         attempts.stop("Official TradingView MCP session could not be opened for this refresh.")
                 groups = await asyncio.gather(
-                    *(self._read_group(group, timeframe, attempts) for group in self._watchlist_groups)
+                    *(self._read_group(group, timeframe, attempts) for group in definitions)
                 )
             warnings = [
                 "Official TradingView MCP is the primary source for available price evidence.",
-                "Watchlist groups use the read-only PS_Global_Indices snapshot recorded on 2026-10-07.",
+                watchlist_warning,
             ]
             if attempts.stopped_reason:
                 warnings.append(f"Official TradingView MCP requests stopped early: {attempts.stopped_reason}")

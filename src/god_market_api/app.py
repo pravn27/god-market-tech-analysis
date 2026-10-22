@@ -1,6 +1,7 @@
 """FastAPI application for the local, read-only MCP API service."""
 
 import asyncio
+import os
 from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -8,7 +9,7 @@ from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnec
 from .desktop_bridge import TradingViewDesktopWatchlistReader
 from .desktop_candles import DesktopChartCandleProvider, FallbackChartProvider
 from .global_market import GlobalMarketLiveSnapshotProvider, GlobalMarketSnapshotProvider, WatchlistGroupSource
-from .global_market_live import GlobalMarketLiveHub, relay_global_market_live
+from .global_market_live import GlobalMarketLiveHub, reject_global_market_live, relay_global_market_live
 from .models import (
     AnalysisTimeframe,
     ChartContext,
@@ -27,6 +28,10 @@ from .providers import ChartContextProvider, DataSourceUnavailableError, Officia
 from .watchlist_source import DesktopWatchlistSectionSource, FallbackWatchlistSource, OfficialWatchlistSource
 
 
+def _env_flag(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def create_app(
     provider: Optional[ChartContextProvider] = None,
     oauth: Optional[OfficialMCPOAuthCoordinator] = None,
@@ -36,6 +41,7 @@ def create_app(
     mtf_analysis: Optional[MultiTimeframeAnalysisService] = None,
     mtf_live: Optional[MtfLiveHub] = None,
     global_market_live: Optional[GlobalMarketLiveHub] = None,
+    global_market_live_enabled: Optional[bool] = None,
     watchlist_source: Optional[WatchlistGroupSource] = None,
     desktop_candles: Optional[ChartContextProvider] = None,
 ) -> FastAPI:
@@ -63,8 +69,19 @@ def create_app(
         active_provider,
         desktop_watchlist_reader=active_desktop_watchlist_reader,
         watchlist_source=active_watchlist_source,
+        # Opt-in: reading Weekly from the open chart switches TradingView once per symbol (often 30+ minutes
+        # for the watchlist) and moves the user's chart while it runs. Injected providers never reach it.
+        desktop_chart_provider=(
+            active_desktop_candles
+            if provider is None and _env_flag("GLOBAL_MARKET_DESKTOP_WEEKLY")
+            else None
+        ),
     )
     active_global_market_live = global_market_live or GlobalMarketLiveHub(active_global_market_provider)
+    # Live refresh spends official MCP quota on every refresh, so it is off unless the server opts in.
+    active_global_market_live_enabled = (
+        _env_flag("GLOBAL_MARKET_LIVE_ENABLED") if global_market_live_enabled is None else global_market_live_enabled
+    )
     app = FastAPI(
         title="God Market MCP API",
         version="0.1.0",
@@ -189,6 +206,9 @@ def create_app(
             await websocket.close(code=1008, reason="Unsupported timeframe.")
             return
         await websocket.accept()
+        if not active_global_market_live_enabled:
+            await reject_global_market_live(websocket, interval)
+            return
         await relay_global_market_live(websocket, active_global_market_live, interval)
 
     @app.get("/api/v1/oauth/official/status", tags=["official-mcp-oauth"])

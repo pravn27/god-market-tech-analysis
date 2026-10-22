@@ -10,7 +10,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncIterator, Callable, Optional
 from urllib.parse import urlencode
 
 import httpx
@@ -20,6 +20,8 @@ from mcp import ClientSession
 from mcp.client.auth.oauth2 import TokenStorage
 from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
+
+from .providers import OfficialQuotaExceededError, is_quota_exceeded, next_quota_reset
 
 
 OFFICIAL_MCP_URL = "https://mcp.tradingview.com/mcp"
@@ -118,6 +120,13 @@ class _SharedMCPSession:
 _shared_mcp_session: ContextVar[Optional[_SharedMCPSession]] = ContextVar("shared_mcp_session", default=None)
 
 
+def _quota_message(reset_at: datetime) -> str:
+    return (
+        "The official TradingView MCP daily quota is used up; official calls resume after "
+        f"{reset_at.strftime('%Y-%m-%d %H:%M')} UTC."
+    )
+
+
 class OfficialMCPOAuthCoordinator:
     """Runs an explicit, local OAuth 2.1 authorization-code flow with PKCE."""
 
@@ -125,12 +134,16 @@ class OfficialMCPOAuthCoordinator:
         self,
         redirect_uri: str = "http://127.0.0.1:8000/api/v1/oauth/official/callback",
         storage: Optional[TokenStorage] = None,
+        clock: Optional[Callable[[], datetime]] = None,
     ) -> None:
         self._redirect_uri = redirect_uri
         self._storage = storage or KeyringTokenStorage()
         self._state = AuthorizationState()
         self._lock = asyncio.Lock()
         self._token_lock = asyncio.Lock()
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        # Set when the official MCP reports its daily quota is used up; no call is made until the reset.
+        self._quota_blocked_until: Optional[datetime] = None
 
     async def _metadata(self) -> dict[str, Any]:
         try:
@@ -296,7 +309,22 @@ class OfficialMCPOAuthCoordinator:
         return await self._token_status(tokens) != "reconnect_required"
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
-        """Call a read-only official-MCP tool with application-owned credentials."""
+        """Call a read-only official-MCP tool with application-owned credentials.
+
+        Every official call (chart data, technicals, watchlist) passes through here. Once the daily
+        quota is reported as used up, calls fail immediately without reaching the MCP until midnight UTC.
+        """
+        now = self._clock()
+        if self._quota_blocked_until is not None and now < self._quota_blocked_until:
+            raise OfficialQuotaExceededError(_quota_message(self._quota_blocked_until))
+        result = await self._call_tool_authorized(name, arguments)
+        if is_quota_exceeded(result):
+            self._quota_blocked_until = next_quota_reset(self._clock())
+            raise OfficialQuotaExceededError(_quota_message(self._quota_blocked_until))
+        self._quota_blocked_until = None
+        return result
+
+    async def _call_tool_authorized(self, name: str, arguments: dict[str, Any]) -> Any:
         tokens = await self._storage.get_tokens()
         if not tokens:
             self._state.status = "reconnect_required"

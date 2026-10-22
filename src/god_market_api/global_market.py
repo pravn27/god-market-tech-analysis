@@ -130,6 +130,40 @@ def _supports_desktop_quotes(timeframe: str) -> bool:
     return timeframe.strip().lower() in {"1d", "daily"}
 
 
+# Intervals the Desktop watchlist cannot price; items the official MCP misses are read from the open chart.
+DESKTOP_CHART_TIMEFRAMES = frozenset({"1W"})
+# Two failed chart reads in a row stop the pass, so a closed TradingView cannot stall the page.
+DESKTOP_CHART_FAILURE_LIMIT = 2
+# Weekly bars change slowly, so a chart read is reused for this long.
+DESKTOP_CHART_CACHE = timedelta(minutes=30)
+
+
+def _instrument_from_desktop_chart(item: GlobalMarketInstrument, context: ChartContext) -> GlobalMarketInstrument:
+    """Price an item from the last two bars of the open TradingView chart; keep it unavailable otherwise."""
+    candles = sorted(context.candles, key=lambda candle: candle.timestamp)
+    if len(candles) < 2 or candles[-2].close == 0:
+        return item
+    previous, current = candles[-2:]
+    direction = (
+        MarketDirection.ADVANCING
+        if current.close > previous.close
+        else MarketDirection.DECLINING
+        if current.close < previous.close
+        else MarketDirection.UNCHANGED
+    )
+    return GlobalMarketInstrument(
+        symbol=item.symbol,
+        display_name=item.display_name,
+        last_price=current.close,
+        change_percent=((current.close - previous.close) / previous.close) * 100,
+        direction=direction,
+        source=DataSource.DESKTOP_BRIDGE,
+        source_timestamp=context.source_timestamp,
+        freshness_state=context.freshness_state,
+        warnings=context.warnings,
+    )
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -331,6 +365,8 @@ class GlobalMarketLiveSnapshotProvider:
         retry_delay_seconds: float = 1.0,
         official_time_budget_seconds: float = 20.0,
         official_failure_limit: int = 3,
+        desktop_chart_provider: ChartContextProvider | None = None,
+        desktop_chart_timeframes: frozenset[str] = DESKTOP_CHART_TIMEFRAMES,
     ) -> None:
         if max_provider_concurrency < 1:
             raise ValueError("max_provider_concurrency must be at least 1.")
@@ -354,6 +390,9 @@ class GlobalMarketLiveSnapshotProvider:
         self._cache_for = cache_for
         self._snapshot_cache: dict[str, tuple[datetime, GlobalMarketSnapshot]] = {}
         self._snapshot_lock = asyncio.Lock()
+        self._desktop_chart_provider = desktop_chart_provider
+        self._desktop_chart_timeframes = frozenset(desktop_chart_timeframes)
+        self._desktop_chart_cache: dict[tuple[str, str], tuple[datetime, GlobalMarketInstrument]] = {}
 
     async def _resolve_watchlist(self) -> tuple[tuple[WatchlistGroupDefinition, ...], str]:
         """Sections from the live TradingView watchlist, or the fallback, with a warning that says which."""
@@ -407,18 +446,27 @@ class GlobalMarketLiveSnapshotProvider:
                 groups = await asyncio.gather(
                     *(self._read_group(group, timeframe, attempts) for group in definitions)
                 )
+            chart_notes: list[str] = []
+            if self._uses_desktop_chart(timeframe):
+                groups, chart_notes = await self._fill_from_desktop_chart(groups, timeframe)
             warnings = [
                 "Official TradingView MCP is the primary source for available price evidence.",
                 watchlist_warning,
             ]
             if attempts.stopped_reason:
                 warnings.append(f"Official TradingView MCP requests stopped early: {attempts.stopped_reason}")
+            warnings.extend(chart_notes)
             unavailable_count = sum(
                 item.direction is MarketDirection.UNAVAILABLE
                 for group in groups
                 for item in group.instruments
             )
-            if unavailable_count and self._desktop_watchlist_reader is not None and not _supports_desktop_quotes(timeframe):
+            if (
+                unavailable_count
+                and self._desktop_watchlist_reader is not None
+                and not _supports_desktop_quotes(timeframe)
+                and not self._uses_desktop_chart(timeframe)
+            ):
                 warnings.append(
                     "The TradingView Desktop watchlist supplies daily quotes only; "
                     f"items the official MCP could not price for {timeframe} stay unavailable."
@@ -461,6 +509,68 @@ class GlobalMarketLiveSnapshotProvider:
             )
             self._snapshot_cache[timeframe] = (self._clock() + self._cache_for, snapshot)
             return snapshot
+
+    def _uses_desktop_chart(self, timeframe: str) -> bool:
+        return self._desktop_chart_provider is not None and timeframe in self._desktop_chart_timeframes
+
+    async def _fill_from_desktop_chart(
+        self, groups: Sequence[GlobalMarketGroup], timeframe: str
+    ) -> tuple[list[GlobalMarketGroup], list[str]]:
+        """Second pass: price the items the official MCP could not, from the open TradingView chart.
+
+        It runs after the official pass and outside its time budget, one symbol at a time, because
+        each read switches the chart. Results are reused for DESKTOP_CHART_CACHE.
+        """
+        provider = self._desktop_chart_provider
+        assert provider is not None  # callers check _uses_desktop_chart first
+        replaced: dict[str, GlobalMarketInstrument] = {}
+        reads = 0
+        failures = 0
+        stop_reason: str | None = None
+        for group in groups:
+            for item in group.instruments:
+                if item.direction is not MarketDirection.UNAVAILABLE:
+                    continue
+                cached = self._desktop_chart_cache.get((item.symbol, timeframe))
+                if cached is not None and self._clock() < cached[0]:
+                    replaced[item.symbol] = cached[1]
+                    continue
+                if stop_reason is not None:
+                    continue
+                reads += 1
+                try:
+                    context = await provider.get_chart_context(item.symbol, timeframe)
+                except Exception as error:  # noqa: BLE001 - reported once, after the pass
+                    failures += 1
+                    if failures >= DESKTOP_CHART_FAILURE_LIMIT:
+                        stop_reason = (
+                            str(error) if isinstance(error, DataSourceUnavailableError) else "unexpected error"
+                        )
+                    continue
+                failures = 0
+                instrument = _instrument_from_desktop_chart(item, context)
+                if instrument.direction is not MarketDirection.UNAVAILABLE:
+                    replaced[item.symbol] = instrument
+                    self._desktop_chart_cache[(item.symbol, timeframe)] = (
+                        self._clock() + DESKTOP_CHART_CACHE,
+                        instrument,
+                    )
+        notes: list[str] = []
+        if replaced:
+            notes.append(
+                f"{len(replaced)} item(s) for {timeframe} were read from the open TradingView Desktop chart, "
+                "one symbol at a time; their source timestamps are bar times."
+            )
+        if stop_reason is not None:
+            notes.append(
+                f"TradingView Desktop chart reads stopped after {DESKTOP_CHART_FAILURE_LIMIT} consecutive "
+                f"failures: {stop_reason}"
+            )
+        rebuilt = [
+            group.model_copy(update={"instruments": [replaced.get(item.symbol, item) for item in group.instruments]})
+            for group in groups
+        ]
+        return rebuilt, notes
 
     async def _read_group(
         self, definition: WatchlistGroupDefinition, timeframe: str, attempts: "_OfficialAttempts"

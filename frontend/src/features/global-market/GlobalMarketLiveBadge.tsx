@@ -6,12 +6,14 @@ const statusLabel = {
   live: 'LIVE',
   reconnecting: 'RECONNECTING',
   connecting: 'CONNECTING',
+  paused: 'PAUSED',
 } as const
 
 const statusColor = {
   live: 'success',
   reconnecting: 'warning',
   connecting: 'default',
+  paused: 'default',
 } as const
 
 function formatTime(value: Date) {

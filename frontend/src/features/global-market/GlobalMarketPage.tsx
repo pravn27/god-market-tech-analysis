@@ -11,7 +11,7 @@ import MarketGroupTable from './MarketGroupTable'
 import SentimentSummary from './SentimentSummary'
 import { globalMarketTimeframes, timeframeName } from './marketFormat'
 import { useAllGlobalMarketTimeframes, useGlobalMarket } from './useGlobalMarket'
-import { initialLiveState, useGlobalMarketLive } from './useGlobalMarketLive'
+import { GLOBAL_MARKET_LIVE_ENABLED, initialLiveState, pausedLiveState, useGlobalMarketLive } from './useGlobalMarketLive'
 
 const completenessColor = {
   complete: 'success',
@@ -36,8 +36,11 @@ export default function GlobalMarketPage() {
   const single = useGlobalMarket(timeframe, !isAll)
   const allResults = useAllGlobalMarketTimeframes(isAll)
   // One WebSocket per timeframe on screen: a single socket in Single mode, one for each in All mode.
-  const liveStates = useGlobalMarketLive(isAll ? globalMarketTimeframes.map(({ value }) => value) : [timeframe])
-  const live = liveStates[timeframe] ?? initialLiveState
+  const liveStates = useGlobalMarketLive(
+    isAll ? globalMarketTimeframes.map(({ value }) => value) : [timeframe],
+    GLOBAL_MARKET_LIVE_ENABLED,
+  )
+  const live = liveStates[timeframe] ?? (GLOBAL_MARKET_LIVE_ENABLED ? initialLiveState : pausedLiveState)
   const data = isAll ? undefined : single.data
   const error = isAll ? null : single.error
   const refreshing = isAll ? allResults.some((result) => result.fetching) : single.isFetching
@@ -131,7 +134,7 @@ export default function GlobalMarketPage() {
                   <Tag color={completenessColor[data.completeness]}>{data.completeness.toUpperCase()}</Tag>
                   <GlobalMarketLiveBadge state={live} />
                 </div>
-                {live.error && (
+                {live.error && live.status !== 'paused' && (
                   <Alert type="warning" showIcon title="Live refresh failed" description={live.error} />
                 )}
                 {data.desktop_fallback === 'full' && (

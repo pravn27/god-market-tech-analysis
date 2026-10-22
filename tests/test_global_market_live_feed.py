@@ -148,7 +148,9 @@ def _client(heartbeat_ms: int = 50_000, provider: CountingSnapshotProvider | Non
             heartbeat_interval=timedelta(milliseconds=heartbeat_ms),
         ),
     )
-    return TestClient(create_app(global_market_provider=provider, global_market_live=hub))
+    return TestClient(
+        create_app(global_market_provider=provider, global_market_live=hub, global_market_live_enabled=True)
+    )
 
 
 def test_live_socket_sends_a_versioned_snapshot_first() -> None:
@@ -176,3 +178,35 @@ def test_live_socket_sends_heartbeats_when_nothing_changes() -> None:
     with _client(heartbeat_ms=50).websocket_connect("/api/v1/global-market-sentiment/live?timeframe=1D") as socket:
         socket.receive_json()  # snapshot
         assert socket.receive_json()["type"] == "heartbeat"
+
+
+def test_live_socket_is_rejected_with_an_error_when_live_updates_are_disabled() -> None:
+    provider = CountingSnapshotProvider()
+    hub = GlobalMarketLiveHub(provider, schedule=FAST)
+    client = TestClient(create_app(global_market_provider=provider, global_market_live=hub, global_market_live_enabled=False))
+
+    with client.websocket_connect("/api/v1/global-market-sentiment/live?timeframe=1D") as socket:
+        message = socket.receive_json()
+        assert message["type"] == "error"
+        assert "disabled" in message["error"]
+        with pytest.raises(WebSocketDisconnect) as closed:
+            socket.receive_json()
+        assert closed.value.code == 1008
+
+    # The rejected client must not have started a refresh loop or spent a source call.
+    assert provider.calls == []
+    assert hub._tasks == {}
+
+
+def test_live_updates_are_off_by_default_and_the_env_flag_opts_in(monkeypatch) -> None:
+    provider = CountingSnapshotProvider()
+    monkeypatch.delenv("GLOBAL_MARKET_LIVE_ENABLED", raising=False)
+    off = TestClient(create_app(global_market_provider=provider))
+    with off.websocket_connect("/api/v1/global-market-sentiment/live?timeframe=1D") as socket:
+        assert socket.receive_json()["type"] == "error"
+
+    monkeypatch.setenv("GLOBAL_MARKET_LIVE_ENABLED", "true")
+    hub = GlobalMarketLiveHub(provider, schedule=FAST)
+    on = TestClient(create_app(global_market_provider=provider, global_market_live=hub))
+    with on.websocket_connect("/api/v1/global-market-sentiment/live?timeframe=1D") as socket:
+        assert socket.receive_json()["type"] == "snapshot"

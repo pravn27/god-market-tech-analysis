@@ -6,7 +6,7 @@ into ``ChartContext``. It never calculates signals or makes trading decisions.
 
 import json
 from contextlib import AbstractAsyncContextManager, nullcontext
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Any, Mapping, Protocol, Sequence
 
 from .models import Candle, ChartContext, DataSource, SourceHealth, SourceState, TechnicalSnapshot
@@ -14,6 +14,29 @@ from .models import Candle, ChartContext, DataSource, SourceHealth, SourceState,
 
 class DataSourceUnavailableError(RuntimeError):
     """Raised when a source cannot provide fresh context for a request."""
+
+
+class OfficialQuotaExceededError(DataSourceUnavailableError):
+    """The official MCP daily tool-call quota is used up; official calls resume at the reset time."""
+
+
+QUOTA_EXCEEDED_MARKER = "TOOL_QUOTA_EXCEEDED"
+
+
+def is_quota_exceeded(result: Any) -> bool:
+    """True when an official MCP result is the quota block rather than market data."""
+    if isinstance(result, Mapping):
+        texts = [str(result)]
+    else:
+        content: Sequence[Any] = getattr(result, "content", ()) or ()
+        texts = [text for text in (getattr(item, "text", None) for item in content) if isinstance(text, str)]
+    return any(QUOTA_EXCEEDED_MARKER in text for text in texts)
+
+
+def next_quota_reset(now: datetime) -> datetime:
+    """The official quota resets at 00:00 UTC, so the next reset is the following midnight."""
+    current = now.astimezone(timezone.utc)
+    return datetime.combine(current.date() + timedelta(days=1), time(0), tzinfo=timezone.utc)
 
 
 class MCPToolCaller(Protocol):

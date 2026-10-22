@@ -29,6 +29,11 @@ export class FakeWebSocket {
     this.onclose?.(new Event('close') as CloseEvent)
   }
 
+  /** Simulate the server closing with a specific close code (for example 1008 when live updates are off). */
+  dropWithCode(code: number) {
+    this.onclose?.(Object.assign(new Event('close'), { code }) as CloseEvent)
+  }
+
   close() {
     // Client-initiated close: the hook has already stopped reconnecting before calling this.
   }

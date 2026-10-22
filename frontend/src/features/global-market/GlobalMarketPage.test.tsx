@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
 import { FakeWebSocket } from '../../test/fakeWebSocket'
@@ -266,53 +266,22 @@ test('the timeframe dropdown lists the six timeframes and requests the chosen on
   )
 })
 
-test('the page subscribes to the selected timeframe live feed and shows the live status', async () => {
+test('live refresh is paused: the page opens no WebSocket and shows PAUSED', async () => {
   vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response(JSON.stringify(fixtureSnapshot), { status: 200 })))
 
   renderPage()
   await screen.findByText('Dow Jones Industrial Average')
-  const socket = FakeWebSocket.instances.find((item) => item.url.endsWith('timeframe=1D'))!
-  expect(socket).toBeDefined()
-  expect(screen.getByRole('status', { name: 'Live feed CONNECTING' })).toBeInTheDocument()
-
-  act(() => socket.open())
-  expect(screen.getByRole('status', { name: 'Live feed LIVE' })).toBeInTheDocument()
+  expect(FakeWebSocket.instances).toHaveLength(0)
+  expect(screen.getByRole('status', { name: 'Live feed PAUSED' })).toBeInTheDocument()
 })
 
-test('a live update replaces the displayed snapshot without another fetch', async () => {
-  const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify(fixtureSnapshot), { status: 200 }))
-  vi.stubGlobal('fetch', fetchMock)
-
-  renderPage()
-  await screen.findByText('Dow Jones Industrial Average')
-  const socket = FakeWebSocket.instances.find((item) => item.url.endsWith('timeframe=1D'))!
-  act(() => socket.open())
-
-  act(() => socket.receive({
-    version: 1,
-    type: 'update',
-    timeframe: '1D',
-    sent_at: '2026-10-22T04:01:00Z',
-    error: null,
-    snapshot: { ...fixtureSnapshot, warnings: ['Pushed by the live feed.'] },
-  }))
-
-  expect(await screen.findByText('Pushed by the live feed.')).toBeInTheDocument()
-  expect(fetchMock).toHaveBeenCalledTimes(1)
-})
-
-test('all timeframes mode opens one live socket for each timeframe', async () => {
+test('all timeframes mode also opens no WebSocket while live refresh is paused', async () => {
   vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response(JSON.stringify(fixtureSnapshot), { status: 200 })))
 
   renderPage()
   await screen.findByText('Dow Jones Industrial Average')
-  FakeWebSocket.reset() // count only the sockets All mode opens, not the Single-mode daily socket
   fireEvent.click(screen.getByRole('switch', { name: 'Analysis mode: all timeframes' }))
 
   await screen.findByRole('table', { name: 'All timeframes market instruments' })
-  const urls = FakeWebSocket.instances.map((socket) => socket.url)
-  for (const tf of ['3M', 'M', '1W', '1D', '4h', '1h']) {
-    expect(urls.some((url) => url.endsWith(`timeframe=${tf}`))).toBe(true)
-  }
-  expect(FakeWebSocket.instances).toHaveLength(6)
+  expect(FakeWebSocket.instances).toHaveLength(0)
 })

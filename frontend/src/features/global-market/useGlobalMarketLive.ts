@@ -7,7 +7,13 @@ import {
   type GlobalMarketTimeframe,
 } from '../../api/client'
 
-export type GlobalMarketLiveStatus = 'connecting' | 'live' | 'reconnecting'
+export type GlobalMarketLiveStatus = 'connecting' | 'live' | 'reconnecting' | 'paused'
+
+/**
+ * Live WebSocket refreshes are paused: every refresh calls the TradingView MCP once per instrument,
+ * which exhausted the daily MCP quota. Set to true to re-enable them.
+ */
+export const GLOBAL_MARKET_LIVE_ENABLED = false
 
 export interface GlobalMarketLiveState {
   status: GlobalMarketLiveStatus
@@ -16,10 +22,12 @@ export interface GlobalMarketLiveState {
 }
 
 const MAX_BACKOFF_MS = 30_000
+const POLICY_VIOLATION_CLOSE = 1008
 // The server sends a heartbeat every 30 seconds; three missed heartbeats mean the socket is dead.
 const SILENCE_LIMIT_MS = 90_000
 
 export const initialLiveState: GlobalMarketLiveState = { status: 'connecting', lastUpdate: null, error: null }
+export const pausedLiveState: GlobalMarketLiveState = { status: 'paused', lastUpdate: null, error: null }
 
 /**
  * Opens one reconnecting socket for a timeframe. Each snapshot is written into the same query cache
@@ -62,9 +70,14 @@ function connectGlobalMarketFeed(
         report({ lastUpdate: new Date(envelope.sent_at), error: null })
       }
     }
-    current.onclose = () => {
+    current.onclose = (event: CloseEvent) => {
       clearTimeout(silenceTimer)
       if (stopped) return
+      // 1008 means the server has live updates switched off; retrying cannot succeed, so stop here.
+      if (event.code === POLICY_VIOLATION_CLOSE) {
+        report({ status: 'paused' })
+        return
+      }
       attempt += 1
       report({ status: 'reconnecting' })
       retryTimer = setTimeout(connect, Math.min(MAX_BACKOFF_MS, 1000 * 2 ** attempt))
@@ -84,12 +97,13 @@ function connectGlobalMarketFeed(
  * Keeps the given timeframes live over the backend WebSocket, one socket per timeframe.
  * Returns each timeframe's live state keyed by timeframe value.
  */
-export function useGlobalMarketLive(timeframes: GlobalMarketTimeframe[]) {
+export function useGlobalMarketLive(timeframes: GlobalMarketTimeframe[], enabled = true) {
   const queryClient = useQueryClient()
   const [states, setStates] = useState<Partial<Record<GlobalMarketTimeframe, GlobalMarketLiveState>>>({})
   const key = timeframes.join(',')
 
   useEffect(() => {
+    if (!enabled) return undefined
     const active = key === '' ? [] : (key.split(',') as GlobalMarketTimeframe[])
     const stops = active.map((timeframe) =>
       connectGlobalMarketFeed(queryClient, timeframe, (patch) =>
@@ -100,7 +114,7 @@ export function useGlobalMarketLive(timeframes: GlobalMarketTimeframe[]) {
       ),
     )
     return () => stops.forEach((stop) => stop())
-  }, [key, queryClient])
+  }, [enabled, key, queryClient])
 
   return states
 }

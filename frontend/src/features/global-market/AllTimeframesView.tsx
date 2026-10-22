@@ -14,7 +14,7 @@ import {
   shortSymbol,
   timeframeName,
 } from './marketFormat'
-import { initialLiveState, type GlobalMarketLiveState } from './useGlobalMarketLive'
+import { GLOBAL_MARKET_LIVE_ENABLED, initialLiveState, pausedLiveState, type GlobalMarketLiveState } from './useGlobalMarketLive'
 
 export interface TimeframeResult {
   timeframe: GlobalMarketTimeframe
@@ -120,7 +120,9 @@ export default function AllTimeframesView({ results, live }: AllTimeframesViewPr
               <Card size="small" className="all-timeframe-card">
                 <Typography.Text type="secondary">{timeframeName(result.timeframe)}</Typography.Text>
                 <div>
-                  <GlobalMarketLiveBadge state={live[result.timeframe] ?? initialLiveState} />
+                  <GlobalMarketLiveBadge
+                    state={live[result.timeframe] ?? (GLOBAL_MARKET_LIVE_ENABLED ? initialLiveState : pausedLiveState)}
+                  />
                 </div>
                 {sentiment ? (
                   <div className="all-timeframe-value">

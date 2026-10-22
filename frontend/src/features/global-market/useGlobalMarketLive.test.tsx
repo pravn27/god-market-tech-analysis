@@ -118,3 +118,15 @@ test('unmounting closes the timeframe sockets and stops reconnecting', () => {
   act(() => vi.advanceTimersByTime(60_000))
   expect(FakeWebSocket.instances).toHaveLength(1)
 })
+
+test('a 1008 close from the server stops reconnecting and reports paused', () => {
+  vi.useFakeTimers()
+  renderProbe(new QueryClient(), ['1D'])
+  act(() => socketFor('1D').open())
+
+  act(() => socketFor('1D').dropWithCode(1008))
+  act(() => vi.advanceTimersByTime(60_000))
+
+  expect(screen.getByLabelText('status')).toHaveTextContent('1D:paused')
+  expect(FakeWebSocket.instances).toHaveLength(1)
+})

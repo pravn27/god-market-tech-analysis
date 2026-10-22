@@ -20,6 +20,7 @@ from .mtf_live import wait_for_client_disconnect
 
 PROTOCOL_VERSION = 1
 QUEUE_LIMIT = 4
+LIVE_DISABLED_MESSAGE = "Live updates are disabled on the server; use Refresh Data."
 
 
 def _utc_now() -> datetime:
@@ -119,6 +120,18 @@ class GlobalMarketLiveHub:
 
     def _error(self, timeframe: str, message: str) -> GlobalMarketLiveEnvelope:
         return GlobalMarketLiveEnvelope(type="error", timeframe=timeframe, sent_at=self._clock(), error=message)
+
+
+async def reject_global_market_live(websocket: WebSocket, timeframe: str) -> None:
+    """Tell the client live updates are off, then close with 1008 so it stops reconnecting.
+
+    No refresh loop is started, so a rejected client costs no source calls.
+    """
+    envelope = GlobalMarketLiveEnvelope(
+        type="error", timeframe=timeframe, sent_at=_utc_now(), error=LIVE_DISABLED_MESSAGE
+    )
+    await websocket.send_json(envelope.model_dump(mode="json"))
+    await websocket.close(code=1008, reason="Live updates are disabled.")
 
 
 async def relay_global_market_live(websocket: WebSocket, hub: GlobalMarketLiveHub, timeframe: str) -> None:

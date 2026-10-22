@@ -8,9 +8,11 @@ does not switch the user's chart on every request.
 
 import asyncio
 from datetime import datetime, timedelta, timezone
-from typing import Callable, Protocol
+from pathlib import Path
+from typing import Callable, Optional, Protocol
 
 from .desktop_bridge import TradingViewDesktopCli
+from .desktop_chart_lock import DEFAULT_CHART_LOCK_PATH, desktop_chart_lock
 from .models import Candle, ChartContext, DataSource, SourceState
 from .providers import ChartContextProvider, DataSourceUnavailableError, normalize_timeframe
 
@@ -28,6 +30,8 @@ RESOLUTION_BY_INTERVAL = {
 }
 
 CHART_COMMAND_TIMEOUT_SECONDS = 30.0
+# A read waits this long for another process's chart read to finish before it reports the chart as busy.
+CHART_LOCK_TIMEOUT_SECONDS = 45.0
 
 DESKTOP_CANDLE_WARNING = "Candles were read from the open TradingView Desktop chart, not the official MCP."
 
@@ -64,6 +68,7 @@ class DesktopChartCandleProvider:
         settle_seconds: float = 1.5,
         poll_attempts: int = 8,
         sleep: Callable[[float], object] = asyncio.sleep,
+        chart_lock_path: Optional[Path] = None,
     ) -> None:
         if bar_count < 2:
             raise ValueError("bar_count must be at least 2.")
@@ -74,13 +79,18 @@ class DesktopChartCandleProvider:
         self._settle_seconds = settle_seconds
         self._poll_attempts = poll_attempts
         self._sleep = sleep
+        self._chart_lock_path = chart_lock_path
         self._lock = asyncio.Lock()
         self._cache: dict[tuple[str, str], tuple[datetime, ChartContext]] = {}
 
     @classmethod
-    def from_environment(cls) -> "DesktopChartCandleProvider":
+    def from_environment(cls, *, chart_lock_path: Optional[Path] = DEFAULT_CHART_LOCK_PATH) -> "DesktopChartCandleProvider":
         # Switching a chart symbol can take longer than a watchlist read, so chart commands get more time.
-        return cls(TradingViewDesktopCli.from_environment(timeout_seconds=CHART_COMMAND_TIMEOUT_SECONDS))
+        # The lock is shared with the scheduled data jobs, which read the same chart in another process.
+        return cls(
+            TradingViewDesktopCli.from_environment(timeout_seconds=CHART_COMMAND_TIMEOUT_SECONDS),
+            chart_lock_path=chart_lock_path,
+        )
 
     async def get_chart_context(self, symbol: str, timeframe: str) -> ChartContext:
         interval = normalize_timeframe(timeframe)
@@ -97,6 +107,12 @@ class DesktopChartCandleProvider:
             self._cache[key] = (self._clock() + self._cache_for, context)
             return context
 
+    def _exclusive_chart(self):
+        """Hold the cross-process chart lock when one is configured; otherwise take no lock."""
+        if self._chart_lock_path is None:
+            return _NoChartLock()
+        return desktop_chart_lock(self._chart_lock_path, timeout=CHART_LOCK_TIMEOUT_SECONDS)
+
     def _fresh_cached(self, key: tuple[str, str]) -> ChartContext | None:
         entry = self._cache.get(key)
         if entry is not None and self._clock() < entry[0]:
@@ -104,17 +120,18 @@ class DesktopChartCandleProvider:
         return None
 
     async def _read_chart(self, symbol: str, interval: str, resolution: str) -> ChartContext:
-        original = await self._current_chart()
-        try:
-            if original["symbol"].upper() != symbol.upper():
-                _require_success(await self._cli.run("symbol", symbol), f"switch to {symbol}")
-            if original["resolution"] != resolution:
-                _require_success(await self._cli.run("timeframe", resolution), f"switch to {resolution}")
-            await self._wait_for_chart(symbol, resolution)
-            payload = _require_success(await self._cli.run("ohlcv", "-n", str(self._bar_count)), "return bars")
-            candles = _bars_to_candles(payload)
-        finally:
-            await self._restore(original)
+        async with self._exclusive_chart():
+            original = await self._current_chart()
+            try:
+                if original["symbol"].upper() != symbol.upper():
+                    _require_success(await self._cli.run("symbol", symbol), f"switch to {symbol}")
+                if original["resolution"] != resolution:
+                    _require_success(await self._cli.run("timeframe", resolution), f"switch to {resolution}")
+                await self._wait_for_chart(symbol, resolution)
+                payload = _require_success(await self._cli.run("ohlcv", "-n", str(self._bar_count)), "return bars")
+                candles = _bars_to_candles(payload)
+            finally:
+                await self._restore(original)
         return ChartContext(
             symbol=symbol,
             timeframe=interval,
@@ -148,6 +165,14 @@ class DesktopChartCandleProvider:
             _require_success(await self._cli.run("symbol", original["symbol"]), "restore the chart symbol")
         if current["resolution"] != original["resolution"]:
             _require_success(await self._cli.run("timeframe", original["resolution"]), "restore the chart interval")
+
+
+class _NoChartLock:
+    async def __aenter__(self) -> None:
+        return None
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        return None
 
 
 def _bars_to_candles(payload: dict) -> list[Candle]:

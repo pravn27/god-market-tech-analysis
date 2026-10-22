@@ -1,4 +1,4 @@
-import type { GlobalMarketInstrument } from '../../api/client'
+import type { GlobalMarketInstrument, GlobalMarketTimeframe } from '../../api/client'
 import { marketColors } from '../../theme'
 
 export const NEUTRAL_BAND_PERCENT = 0.5
@@ -81,4 +81,18 @@ export function calculateSentiment(instruments: GlobalMarketInstrument[]): Senti
   ]
   const [dominantLabel, dominantCount] = ranked.reduce((best, entry) => (entry[1] > best[1] ? entry : best))
   return { ...counts, total, dominantLabel, dominantPercent: percent(dominantCount) }
+}
+
+/** Dropdown order matches the Global Market timeframe selector; values are the API's interval codes. */
+export const globalMarketTimeframes: { value: GlobalMarketTimeframe; label: string; short: string }[] = [
+  { value: '3M', label: '3 Month', short: '3M' },
+  { value: 'M', label: 'Monthly', short: 'M' },
+  { value: '1W', label: 'Weekly', short: 'W' },
+  { value: '1D', label: 'Daily', short: 'D' },
+  { value: '4h', label: '4 Hour', short: '4H' },
+  { value: '1h', label: '1 Hour', short: '1H' },
+]
+
+export function timeframeName(value: string) {
+  return globalMarketTimeframes.find((item) => item.value === value)?.label ?? value
 }

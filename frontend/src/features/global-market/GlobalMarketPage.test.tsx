@@ -1,13 +1,14 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, expect, test, vi } from 'vitest'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 
+import { FakeWebSocket } from '../../test/fakeWebSocket'
 import GlobalMarketPage from './GlobalMarketPage'
 
 const fixtureSnapshot = {
   watchlist_name: 'PS_Global_Indices',
   read_at: '2026-10-06T12:00:00Z',
-  timeframe: 'daily',
+  timeframe: '1D',
   completeness: 'partial',
   breadth: { advancing: 2, declining: 1, unchanged: 0, unavailable: 1 },
   warnings: ['Fixture data only: values are illustrative.'],
@@ -58,7 +59,15 @@ function renderPage() {
   )
 }
 
-afterEach(() => vi.restoreAllMocks())
+beforeEach(() => {
+  FakeWebSocket.reset()
+  vi.stubGlobal('WebSocket', FakeWebSocket)
+})
+
+afterEach(() => {
+  vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+})
 
 test('renders sentiment, ordered groups, fixture warning, and unavailable evidence', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(fixtureSnapshot), { status: 200 })))
@@ -115,7 +124,7 @@ test('refresh refetches only the local API', async () => {
   fireEvent.click(screen.getByRole('button', { name: /Refresh/ }))
 
   await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
-  expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/global-market-sentiment?timeframe=daily')
+  expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/global-market-sentiment?timeframe=1D')
 })
 
 test('shows a clear local API error', async () => {
@@ -206,14 +215,104 @@ test('opens read-only evidence details from cards and from the table', async () 
   expect(await screen.findByText('Market evidence: Dow Jones Industrial Average')).toBeInTheDocument()
 })
 
-test('defaults to cards and presents daily context and view controls', async () => {
+test('defaults to cards, single-timeframe daily analysis, and presents view controls', async () => {
   vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(fixtureSnapshot), { status: 200 })))
 
   renderPage()
 
   await screen.findByText('Dow Jones Industrial Average')
-  expect(screen.getByText('Daily snapshot')).toBeInTheDocument()
+  expect(screen.getByRole('switch', { name: 'Analysis mode: all timeframes' })).not.toBeChecked()
+  expect(screen.getByRole('combobox', { name: 'Timeframe' }).closest('.ant-select')).toHaveTextContent('Daily')
   expect(screen.getByRole('radiogroup', { name: 'Market view' })).toBeInTheDocument()
   expect(screen.getByRole('radio', { name: /Cards/ })).toBeChecked()
   expect(screen.queryByRole('table')).not.toBeInTheDocument()
+})
+
+test('all timeframes mode loads every timeframe and shows one column per timeframe', async () => {
+  const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify(fixtureSnapshot), { status: 200 }))
+  vi.stubGlobal('fetch', fetchMock)
+
+  renderPage()
+  await screen.findByText('Dow Jones Industrial Average')
+  fireEvent.click(screen.getByRole('switch', { name: 'Analysis mode: all timeframes' }))
+
+  const matrix = await screen.findByRole('table', { name: 'All timeframes market instruments' })
+  for (const label of ['3M', 'M', 'W', 'D', '4H', '1H']) {
+    expect(within(matrix).getByRole('columnheader', { name: label })).toBeInTheDocument()
+  }
+  const urls = fetchMock.mock.calls.map(([url]) => url as string)
+  for (const tf of ['3M', 'M', '1W', '1D', '4h', '1h']) {
+    expect(urls).toContain(`/api/v1/global-market-sentiment?timeframe=${tf}`)
+  }
+  expect(screen.getByRole('combobox', { name: 'Timeframe' })).toBeDisabled()
+  expect(screen.getByRole('radio', { name: /Cards/ })).toBeDisabled()
+})
+
+test('the timeframe dropdown lists the six timeframes and requests the chosen one', async () => {
+  const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify(fixtureSnapshot), { status: 200 }))
+  vi.stubGlobal('fetch', fetchMock)
+
+  renderPage()
+  await screen.findByText('Dow Jones Industrial Average')
+  fireEvent.mouseDown(screen.getByRole('combobox', { name: 'Timeframe' }))
+
+  for (const label of ['3 Month', 'Monthly', 'Weekly', 'Daily', '4 Hour', '1 Hour']) {
+    expect(await screen.findByText(label, { selector: '.ant-select-item-option-content' })).toBeInTheDocument()
+  }
+  fireEvent.click(screen.getByText('4 Hour', { selector: '.ant-select-item-option-content' }))
+
+  await waitFor(() =>
+    expect(fetchMock.mock.calls.map(([url]) => url)).toContain('/api/v1/global-market-sentiment?timeframe=4h'),
+  )
+})
+
+test('the page subscribes to the selected timeframe live feed and shows the live status', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response(JSON.stringify(fixtureSnapshot), { status: 200 })))
+
+  renderPage()
+  await screen.findByText('Dow Jones Industrial Average')
+  const socket = FakeWebSocket.instances.find((item) => item.url.endsWith('timeframe=1D'))!
+  expect(socket).toBeDefined()
+  expect(screen.getByRole('status', { name: 'Live feed CONNECTING' })).toBeInTheDocument()
+
+  act(() => socket.open())
+  expect(screen.getByRole('status', { name: 'Live feed LIVE' })).toBeInTheDocument()
+})
+
+test('a live update replaces the displayed snapshot without another fetch', async () => {
+  const fetchMock = vi.fn().mockImplementation(async () => new Response(JSON.stringify(fixtureSnapshot), { status: 200 }))
+  vi.stubGlobal('fetch', fetchMock)
+
+  renderPage()
+  await screen.findByText('Dow Jones Industrial Average')
+  const socket = FakeWebSocket.instances.find((item) => item.url.endsWith('timeframe=1D'))!
+  act(() => socket.open())
+
+  act(() => socket.receive({
+    version: 1,
+    type: 'update',
+    timeframe: '1D',
+    sent_at: '2026-10-22T04:01:00Z',
+    error: null,
+    snapshot: { ...fixtureSnapshot, warnings: ['Pushed by the live feed.'] },
+  }))
+
+  expect(await screen.findByText('Pushed by the live feed.')).toBeInTheDocument()
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+})
+
+test('all timeframes mode opens one live socket for each timeframe', async () => {
+  vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => new Response(JSON.stringify(fixtureSnapshot), { status: 200 })))
+
+  renderPage()
+  await screen.findByText('Dow Jones Industrial Average')
+  FakeWebSocket.reset() // count only the sockets All mode opens, not the Single-mode daily socket
+  fireEvent.click(screen.getByRole('switch', { name: 'Analysis mode: all timeframes' }))
+
+  await screen.findByRole('table', { name: 'All timeframes market instruments' })
+  const urls = FakeWebSocket.instances.map((socket) => socket.url)
+  for (const tf of ['3M', 'M', '1W', '1D', '4h', '1h']) {
+    expect(urls.some((url) => url.endsWith(`timeframe=${tf}`))).toBe(true)
+  }
+  expect(FakeWebSocket.instances).toHaveLength(6)
 })

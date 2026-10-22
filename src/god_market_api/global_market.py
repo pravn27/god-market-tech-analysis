@@ -125,6 +125,11 @@ RECORDED_WATCHLIST_GROUPS = (
 )
 
 
+def _supports_desktop_quotes(timeframe: str) -> bool:
+    """The Desktop watchlist shows daily change only, so it can stand in for the daily timeframe alone."""
+    return timeframe.strip().lower() in {"1d", "daily"}
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -132,7 +137,7 @@ def _utc_now() -> datetime:
 class GlobalMarketSnapshotProvider(Protocol):
     """Boundary for a read-only global-market snapshot source."""
 
-    async def get_snapshot(self, timeframe: str) -> GlobalMarketSnapshot:
+    async def get_snapshot(self, timeframe: str, *, force_refresh: bool = False) -> GlobalMarketSnapshot:
         ...
 
 
@@ -217,7 +222,7 @@ class FixtureGlobalMarketSnapshotProvider:
         self._clock = clock
         self._service = GlobalMarketSnapshotService(clock=clock)
 
-    async def get_snapshot(self, timeframe: str) -> GlobalMarketSnapshot:
+    async def get_snapshot(self, timeframe: str, *, force_refresh: bool = False) -> GlobalMarketSnapshot:
         observed_at = self._clock()
         return self._service.build_snapshot(
             timeframe=timeframe,
@@ -371,20 +376,23 @@ class GlobalMarketLiveSnapshotProvider:
             return read.groups, f"TradingView watchlist refresh failed ({read.error}); showing groups read at {stamp}."
         return read.groups, f"Watchlist groups read live from TradingView {WATCHLIST_NAME} at {stamp}."
 
-    async def get_snapshot(self, timeframe: str) -> GlobalMarketSnapshot:
-        """Read each approved item with bounded concurrency and preserve every failure."""
-        cached = self._cached_snapshot(timeframe)
+    async def get_snapshot(self, timeframe: str, *, force_refresh: bool = False) -> GlobalMarketSnapshot:
+        """Read each approved item with bounded concurrency and preserve every failure.
+
+        ``force_refresh`` skips the snapshot cache; the live feed uses it for each scheduled refresh.
+        """
+        cached = None if force_refresh else self._cached_snapshot(timeframe)
         if cached is not None:
             return cached
         async with self._snapshot_lock:
-            cached = self._cached_snapshot(timeframe)
+            cached = None if force_refresh else self._cached_snapshot(timeframe)
             if cached is not None:
                 return cached
             definitions, watchlist_warning = await self._resolve_watchlist()
             expected_symbols = [item.symbol for group in definitions for item in group.instruments]
             desktop_task = (
                 asyncio.create_task(_read_desktop_quotes(self._desktop_watchlist_reader, expected_symbols))
-                if self._desktop_watchlist_reader is not None
+                if self._desktop_watchlist_reader is not None and _supports_desktop_quotes(timeframe)
                 else None
             )
             attempts = _OfficialAttempts(
@@ -410,6 +418,11 @@ class GlobalMarketLiveSnapshotProvider:
                 for group in groups
                 for item in group.instruments
             )
+            if unavailable_count and self._desktop_watchlist_reader is not None and not _supports_desktop_quotes(timeframe):
+                warnings.append(
+                    "The TradingView Desktop watchlist supplies daily quotes only; "
+                    f"items the official MCP could not price for {timeframe} stay unavailable."
+                )
             desktop_result = None
             if desktop_task is not None:
                 if unavailable_count:

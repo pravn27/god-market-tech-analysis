@@ -39,8 +39,16 @@ _TIMEFRAME_ALIASES = {
     "monthly": "M",
     "1mo": "M",
     "month": "M",
+    "3month": "3M",
+    "3 month": "3M",
+    "quarterly": "3M",
+    "3mo": "3M",
 }
-_SUPPORTED_INTERVALS = {"1m", "5m", "15m", "30m", "1h", "4h", "1D", "1W", "M"}
+# The official MCP has no three-month interval; "3M" is built from its daily bars (see quarterly_candles).
+QUARTERLY_INTERVAL = "3M"
+# Daily bars needed to cover the open quarter, the previous quarter and some margin.
+QUARTERLY_DAILY_LOOKBACK = 320
+_SUPPORTED_INTERVALS = {"1m", "5m", "15m", "30m", "1h", "4h", "1D", "1W", "M", QUARTERLY_INTERVAL}
 
 
 def normalize_timeframe(timeframe: str) -> str:
@@ -237,18 +245,13 @@ class OfficialMCPProvider:
             raise ValueError("candle_count must be at least 1.")
 
         interval = normalize_timeframe(timeframe)
-        try:
-            ohlcv_result = await self._tool_caller.call_tool(
-                "mcp-tv-get-ohlcv", {"symbol": symbol, "interval": interval, "count": candle_count}
-            )
-        except DataSourceUnavailableError:
-            raise
-        except Exception as error:
-            raise DataSourceUnavailableError(
-                "The official MCP market-data request could not be completed. No chart context was returned."
-            ) from error
-
-        candles = _candles(_decode_tool_result(ohlcv_result))
+        if interval == QUARTERLY_INTERVAL:
+            daily = await self._fetch_candles(symbol, "1D", QUARTERLY_DAILY_LOOKBACK)
+            candles = quarterly_candles(daily)[-candle_count:]
+            if not candles:
+                raise DataSourceUnavailableError("The official MCP returned no daily candles for quarters.")
+        else:
+            candles = await self._fetch_candles(symbol, interval, candle_count)
         source_timestamp = candles[-1].timestamp
         self._last_success_at = datetime.now(timezone.utc)
         return ChartContext(
@@ -259,3 +262,44 @@ class OfficialMCPProvider:
             freshness_state=SourceState.READY,
             candles=candles,
         )
+
+    async def _fetch_candles(self, symbol: str, interval: str, count: int) -> list[Candle]:
+        try:
+            ohlcv_result = await self._tool_caller.call_tool(
+                "mcp-tv-get-ohlcv", {"symbol": symbol, "interval": interval, "count": count}
+            )
+        except DataSourceUnavailableError:
+            raise
+        except Exception as error:
+            raise DataSourceUnavailableError(
+                "The official MCP market-data request could not be completed. No chart context was returned."
+            ) from error
+        return _candles(_decode_tool_result(ohlcv_result))
+
+
+def quarterly_candles(candles: Sequence[Candle]) -> list[Candle]:
+    """Group candles into calendar quarters (Jan-Mar, Apr-Jun, Jul-Sep, Oct-Dec).
+
+    Open is the first candle's open, high and low are the extremes across the quarter, close is the last
+    candle's close, and the quarter takes the timestamp of its first candle. The open quarter is partial.
+    Daily candles are used because monthly bars can carry shifted dates for futures (duplicate or missing
+    months), which would put bars in the wrong quarter.
+    """
+    groups: dict[tuple[int, int], list[Candle]] = {}
+    for candle in sorted(candles, key=lambda item: item.timestamp):
+        key = (candle.timestamp.year, (candle.timestamp.month - 1) // 3)
+        groups.setdefault(key, []).append(candle)
+    quarters: list[Candle] = []
+    for bars in (groups[key] for key in sorted(groups)):
+        volumes = [bar.volume for bar in bars if bar.volume is not None]
+        quarters.append(
+            Candle(
+                timestamp=bars[0].timestamp,
+                open=bars[0].open,
+                high=max(bar.high for bar in bars),
+                low=min(bar.low for bar in bars),
+                close=bars[-1].close,
+                volume=sum(volumes) if volumes else None,
+            )
+        )
+    return quarters

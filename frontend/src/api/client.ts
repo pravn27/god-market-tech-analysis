@@ -162,8 +162,10 @@ export function mtfLiveUrl(symbol: string): string {
   return url.toString()
 }
 
+export type GlobalMarketTimeframe = '3M' | 'M' | '1W' | '1D' | '4h' | '1h'
+
 export async function getGlobalMarketSentiment(
-  timeframe = 'daily',
+  timeframe: GlobalMarketTimeframe = '1D',
   signal?: AbortSignal,
 ): Promise<GlobalMarketSnapshot> {
   const response = await fetch(
@@ -174,4 +176,21 @@ export async function getGlobalMarketSentiment(
     throw new Error(`Local market context request failed (${response.status}).`)
   }
   return response.json() as Promise<GlobalMarketSnapshot>
+}
+
+export interface GlobalMarketLiveEnvelope {
+  version: number
+  type: 'snapshot' | 'update' | 'heartbeat' | 'error'
+  timeframe: string
+  sent_at: string
+  snapshot: GlobalMarketSnapshot | null
+  error: string | null
+}
+
+export function globalMarketLiveUrl(timeframe: GlobalMarketTimeframe): string {
+  const url = new URL(apiBaseUrl, window.location.href)
+  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+  url.pathname = `${url.pathname.replace(/\/$/, '')}/global-market-sentiment/live`
+  url.search = new URLSearchParams({ timeframe }).toString()
+  return url.toString()
 }

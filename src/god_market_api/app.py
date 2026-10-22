@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnec
 from .desktop_bridge import TradingViewDesktopWatchlistReader
 from .desktop_candles import DesktopChartCandleProvider, FallbackChartProvider
 from .global_market import GlobalMarketLiveSnapshotProvider, GlobalMarketSnapshotProvider, WatchlistGroupSource
+from .global_market_live import GlobalMarketLiveHub, relay_global_market_live
 from .models import (
     AnalysisTimeframe,
     ChartContext,
@@ -22,7 +23,7 @@ from .mtf_analysis import MultiTimeframeAnalysisService, UnknownInstrumentError
 from .mtf_live import MtfLiveHub, wait_for_client_disconnect
 from .mtf_orchestrator import MultiTimeframeContextOrchestrator
 from .oauth import OfficialMCPOAuthCoordinator
-from .providers import ChartContextProvider, DataSourceUnavailableError, OfficialMCPProvider
+from .providers import ChartContextProvider, DataSourceUnavailableError, OfficialMCPProvider, normalize_timeframe
 from .watchlist_source import DesktopWatchlistSectionSource, FallbackWatchlistSource, OfficialWatchlistSource
 
 
@@ -34,6 +35,7 @@ def create_app(
     desktop_watchlist_reader: Optional[TradingViewDesktopWatchlistReader] = None,
     mtf_analysis: Optional[MultiTimeframeAnalysisService] = None,
     mtf_live: Optional[MtfLiveHub] = None,
+    global_market_live: Optional[GlobalMarketLiveHub] = None,
     watchlist_source: Optional[WatchlistGroupSource] = None,
     desktop_candles: Optional[ChartContextProvider] = None,
 ) -> FastAPI:
@@ -62,6 +64,7 @@ def create_app(
         desktop_watchlist_reader=active_desktop_watchlist_reader,
         watchlist_source=active_watchlist_source,
     )
+    active_global_market_live = global_market_live or GlobalMarketLiveHub(active_global_market_provider)
     app = FastAPI(
         title="God Market MCP API",
         version="0.1.0",
@@ -170,9 +173,23 @@ def create_app(
         tags=["global-market-sentiment"],
     )
     async def global_market_sentiment(
-        timeframe: str = Query("daily", min_length=1, max_length=12),
+        timeframe: str = Query("1D", min_length=1, max_length=12),
     ) -> GlobalMarketSnapshot:
-        return await active_global_market_provider.get_snapshot(timeframe)
+        try:
+            interval = normalize_timeframe(timeframe)
+        except DataSourceUnavailableError as error:
+            raise HTTPException(status_code=422, detail=str(error))
+        return await active_global_market_provider.get_snapshot(interval)
+
+    @app.websocket("/api/v1/global-market-sentiment/live")
+    async def global_market_sentiment_live(websocket: WebSocket) -> None:
+        try:
+            interval = normalize_timeframe(websocket.query_params.get("timeframe", "1D"))
+        except DataSourceUnavailableError:
+            await websocket.close(code=1008, reason="Unsupported timeframe.")
+            return
+        await websocket.accept()
+        await relay_global_market_live(websocket, active_global_market_live, interval)
 
     @app.get("/api/v1/oauth/official/status", tags=["official-mcp-oauth"])
     async def official_oauth_status() -> dict:

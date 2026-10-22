@@ -13,7 +13,7 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence
 
 LABEL = "com.asta.data-jobs.tick"
 MIN_INTERVAL_SECONDS = 300
@@ -40,11 +40,13 @@ def build_plist(
     db: Path,
     log_dir: Path,
     every_seconds: int,
+    environment: Optional[Mapping[str, str]] = None,
 ) -> Dict[str, Any]:
+    variables = {**(environment or {}), "PYTHONPATH": os.pathsep.join(str(path) for path in src_dirs)}
     return {
         "Label": LABEL,
         "ProgramArguments": [python, "-m", "data_jobs", "--db", str(db), "tick"],
-        "EnvironmentVariables": {"PYTHONPATH": os.pathsep.join(str(path) for path in src_dirs)},
+        "EnvironmentVariables": variables,
         "WorkingDirectory": str(src_dirs[0].parent),
         "StartInterval": every_seconds,
         "RunAtLoad": True,
@@ -61,6 +63,7 @@ def install(
     db: Path,
     log_dir: Path,
     every_seconds: int,
+    environment: Optional[Mapping[str, str]] = None,
     target: Optional[Path] = None,
     platform: str = sys.platform,
     run: Callable[..., Any] = subprocess.run,
@@ -74,7 +77,14 @@ def install(
     agent.parent.mkdir(parents=True, exist_ok=True)
     agent.write_bytes(
         plistlib.dumps(
-            build_plist(python=python, src_dirs=src_dirs, db=db, log_dir=log_dir, every_seconds=every_seconds)
+            build_plist(
+                python=python,
+                src_dirs=src_dirs,
+                db=db,
+                log_dir=log_dir,
+                every_seconds=every_seconds,
+                environment=environment,
+            )
         )
     )
     domain = f"gui/{uid()}"

@@ -8,17 +8,20 @@ import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional, Sequence
+from typing import Callable, Dict, Optional, Sequence
 
 from . import scheduler
-from .config import DEFAULT_DB, GOD_MARKET_SRC_DIR, LOG_DIR, SRC_DIR
-from .registry import bar_source, registered_jobs
+from .config import DEFAULT_DB, ENV_FILE, GOD_MARKET_SRC_DIR, LOG_DIR, SRC_DIR
+from .registry import InstrumentListUnavailable, bar_source, registered_jobs
 from .runner import BarFetcher, JobSpec, JobStatus, coverage, job_status, tick
 from .store import connect, utc_now
 
-EXIT_NO_FETCHER = 2
 EXIT_SCHEDULE_ERROR = 1
+EXIT_NO_FETCHER = 2
+EXIT_NO_INSTRUMENTS = 3
 COVERAGE_PERIODS = 7
+# The Desktop watchlist read needs these. The scheduled run has no shell environment, so they are copied into the agent.
+BRIDGE_ENV_KEYS = ("TRADINGVIEW_DESKTOP_BRIDGE_CLI", "TRADINGVIEW_DESKTOP_BRIDGE_NODE")
 
 
 def main(
@@ -49,14 +52,18 @@ def main(
     if args.command == "schedule":
         return _schedule(args, out)
 
-    if specs is None:
-        specs = registered_jobs()
-    if fetcher is None:
-        fetcher = bar_source()
     conn = connect(args.db)
     try:
         if args.command == "status":
-            return _print_status(conn, specs, clock(), out)
+            # Status works without Desktop: without the watchlist it only leaves out the coverage lines.
+            current = specs if specs is not None else _registered_for_status(out)
+            return _print_status(conn, current, clock(), out)
+        if specs is None:
+            specs = _registered_for_tick(out)
+            if specs is None:
+                return EXIT_NO_INSTRUMENTS
+            if fetcher is None:
+                fetcher = bar_source()
         return _tick(conn, specs, fetcher, clock, out)
     finally:
         conn.close()
@@ -75,6 +82,7 @@ def _schedule(args: argparse.Namespace, out: Callable[[str], None]) -> int:
                 db=Path(args.db).resolve(),
                 log_dir=LOG_DIR,
                 every_seconds=args.every_minutes * 60,
+                environment=_bridge_environment(),
             )
             out(f"Installed {scheduler.LABEL} at {agent}.")
             out(f"It runs every {args.every_minutes} minute(s) and once now. Logs: {LOG_DIR}")
@@ -92,6 +100,34 @@ def _schedule(args: argparse.Namespace, out: Callable[[str], None]) -> int:
         out(str(error))
         return EXIT_SCHEDULE_ERROR
     return 0
+
+
+def _registered_for_tick(out: Callable[[str], None]) -> Optional[Sequence[JobSpec]]:
+    try:
+        return registered_jobs()
+    except InstrumentListUnavailable as error:
+        out(f"Instrument list unavailable, so no job ran: {error}")
+        return None
+
+
+def _registered_for_status(out: Callable[[str], None]) -> Sequence[JobSpec]:
+    try:
+        return registered_jobs()
+    except InstrumentListUnavailable as error:
+        out(f"Instrument list unavailable, so coverage is not shown: {error}")
+        return ()
+
+
+def _bridge_environment(env_file: Path = ENV_FILE) -> Dict[str, str]:
+    """The Desktop bridge settings, from the shell environment or the app's ``.env.local``."""
+    from_file: Dict[str, str] = {}
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            key, separator, value = line.strip().partition("=")
+            if separator and key.strip():
+                from_file[key.strip()] = value.strip().strip("'\"")
+    resolved = {key: os.environ.get(key) or from_file.get(key, "") for key in BRIDGE_ENV_KEYS}
+    return {key: value for key, value in resolved.items() if value}
 
 
 def _tick(

@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
-from typing import Callable, List, Protocol, Sequence, Tuple, Union
+from typing import Callable, List, Optional, Protocol, Sequence, Tuple, Union
 
-from .store import Bar, from_text, to_text, transaction, upsert_bars, utc_now
+from .aggregate import PERIODS, aggregate
+from .store import Bar, UpsertCounts, from_text, to_text, transaction, upsert_bars, utc_now
 
 Clock = Callable[[], datetime]
+
+DAILY_TIMEFRAME = "1D"
+DERIVED_SOURCE = "derived"
 
 RUNNING = "running"
 SUCCEEDED = "succeeded"
@@ -68,6 +72,10 @@ class JobSpec:
     bar_count: int
     # Which period a run belongs to, used to show coverage. Daily by default.
     period_key: Callable[[datetime], str] = daily_key
+    # Weekly, monthly or quarterly bars built from the stored daily bars of each symbol in this run.
+    derived_periods: Tuple[str, ...] = ()
+    # Maps (symbol, bar time) to the UTC midnight of the trading day. Applied to daily bars when set.
+    trading_day: Optional[Callable[[str, datetime], datetime]] = None
 
     def __post_init__(self) -> None:
         if not self.name.strip():
@@ -78,6 +86,11 @@ class JobSpec:
             raise ValueError("A job needs at least one symbol and one timeframe.")
         if self.bar_count <= 0:
             raise ValueError("A job must read at least one bar.")
+        unknown = [period for period in self.derived_periods if period not in PERIODS]
+        if unknown:
+            raise ValueError(f"Unsupported derived period(s): {', '.join(unknown)}.")
+        if self.derived_periods and DAILY_TIMEFRAME not in self.timeframes:
+            raise ValueError("Derived periods are built from daily bars, so the job must fetch 1D.")
 
 
 @dataclass(frozen=True)
@@ -255,15 +268,20 @@ def _run_item(
         if not result.bars:
             raise EmptyResponseError("The source returned no bars.")
         now = clock()
+        bars = result.bars
+        if spec.trading_day is not None and timeframe == DAILY_TIMEFRAME:
+            bars = on_trading_days(bars, symbol=symbol, trading_day=spec.trading_day, now=now)
         with transaction(conn):
             counts = upsert_bars(
                 conn,
                 symbol=symbol,
                 timeframe=timeframe,
-                bars=result.bars,
+                bars=bars,
                 source=result.source,
                 fetched_at=now,
             )
+            if spec.derived_periods and timeframe == DAILY_TIMEFRAME:
+                counts = _add_counts(counts, _write_derived(conn, symbol, spec.derived_periods, now))
             conn.execute(
                 "UPDATE job_items SET status = 'succeeded', fetched_at = ?, error = NULL "
                 "WHERE run_id = ? AND symbol = ? AND timeframe = ?",
@@ -285,6 +303,78 @@ def _run_item(
             )
             conn.execute("UPDATE job_runs SET heartbeat_at = ? WHERE id = ?", (to_text(now), run_id))
         totals.failed += 1
+
+
+def on_trading_days(
+    bars: Sequence[Bar],
+    *,
+    symbol: str,
+    trading_day: Callable[[str, datetime], datetime],
+    now: datetime,
+) -> List[Bar]:
+    """Re-stamp daily bars at the midnight of their trading day. Two bars on one day are refused."""
+    result: List[Bar] = []
+    seen = set()
+    for bar in bars:
+        day = trading_day(symbol, bar.bar_time)
+        if day in seen:
+            raise ValueError(f"Two daily bars for {symbol} fall on the same trading day, {day.date().isoformat()}.")
+        seen.add(day)
+        result.append(replace(bar, bar_time=day, is_closed=day + timedelta(days=1) <= now))
+    return result
+
+
+def _write_derived(
+    conn: sqlite3.Connection,
+    symbol: str,
+    periods: Sequence[str],
+    now: datetime,
+) -> UpsertCounts:
+    """Build each period from every stored daily bar of the symbol, then store it.
+
+    The oldest period can start before the stored history begins, so its open and volume would be
+    wrong. Such a period is dropped; it is built once enough daily history has been stored.
+    """
+    daily = _stored_daily(conn, symbol)
+    if not daily:
+        return UpsertCounts()
+    first_day = daily[0].bar_time.astimezone(timezone.utc).date()
+    counts = UpsertCounts()
+    for period in periods:
+        complete = [bar for bar in aggregate(daily, period, now=now) if bar.bar_time.date() >= first_day]
+        counts = _add_counts(
+            counts,
+            upsert_bars(conn, symbol=symbol, timeframe=period, bars=complete, source=DERIVED_SOURCE, fetched_at=now),
+        )
+    return counts
+
+
+def _stored_daily(conn: sqlite3.Connection, symbol: str) -> List[Bar]:
+    rows = conn.execute(
+        "SELECT bar_time, open, high, low, close, volume, is_closed FROM bars "
+        "WHERE symbol = ? AND timeframe = ? ORDER BY bar_time",
+        (symbol, DAILY_TIMEFRAME),
+    ).fetchall()
+    return [
+        Bar(
+            bar_time=from_text(row["bar_time"]),
+            open=row["open"],
+            high=row["high"],
+            low=row["low"],
+            close=row["close"],
+            volume=row["volume"],
+            is_closed=bool(row["is_closed"]),
+        )
+        for row in rows
+    ]
+
+
+def _add_counts(first: UpsertCounts, second: UpsertCounts) -> UpsertCounts:
+    return UpsertCounts(
+        inserted=first.inserted + second.inserted,
+        updated=first.updated + second.updated,
+        unchanged=first.unchanged + second.unchanged,
+    )
 
 
 def _finish_run(

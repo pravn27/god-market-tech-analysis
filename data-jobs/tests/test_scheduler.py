@@ -132,3 +132,19 @@ def test_the_default_agent_location_is_in_the_user_launch_agents_folder(tmp_path
     path = scheduler.plist_path(home=tmp_path)
 
     assert path == tmp_path / "Library" / "LaunchAgents" / f"{LABEL}.plist"
+
+
+def test_the_agent_carries_the_desktop_bridge_settings_it_needs(tmp_path):
+    plist = build_plist(
+        python="/venv/bin/python",
+        src_dirs=(Path("/repo/data-jobs/src"), Path("/repo/src")),
+        db=Path("/repo/data-jobs/data/jobs.sqlite3"),
+        log_dir=tmp_path,
+        every_seconds=3600,
+        environment={"TRADINGVIEW_DESKTOP_BRIDGE_CLI": "/opt/bridge/cli.js"},
+    )
+
+    assert plist["EnvironmentVariables"] == {
+        "TRADINGVIEW_DESKTOP_BRIDGE_CLI": "/opt/bridge/cli.js",
+        "PYTHONPATH": "/repo/data-jobs/src:/repo/src",
+    }

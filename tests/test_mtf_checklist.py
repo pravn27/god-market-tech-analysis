@@ -139,6 +139,12 @@ def test_adx_bands(series, expected_band):
     assert expected_band in cell.labels
 
 
+def test_adx_label_shows_the_current_value():
+    cell = adx_cell(pad([20, 22, 24, 26.5]), pad([25] * 4), pad([15] * 4), T)
+    assert cell.labels[-1] == "ADX 26.50"
+    assert cell.values["adx"] == 26.5
+
+
 def test_adx_rising_follows_dmi_and_falling_is_neutral():
     rising = adx_cell(pad([18, 19, 20, 22]), pad([25] * 4), pad([15] * 4), T)
     assert rising.labels[0] == "Raising > 12 (Gaining good strength in Trend)"

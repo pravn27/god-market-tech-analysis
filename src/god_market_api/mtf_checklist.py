@@ -340,6 +340,7 @@ def adx_cell(adx: Series, plus_di: Series, minus_di: Series, t: ChecklistThresho
     else:
         labels.append("No Momentum (< 10)")
 
+    labels.append(f"ADX {value:.2f}")
     bias = Bias.NEUTRAL
     plus, minus = _at(plus_di), _at(minus_di)
     if rising and value >= 12 and plus is not None and minus is not None and plus != minus:

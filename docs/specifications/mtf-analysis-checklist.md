@@ -238,7 +238,7 @@ Every cell also shows the current value as `RSI <value>` rounded to two decimals
 | > 14 | `Excellent Momentum (> 14)` |
 | > 55 | `Unsustainable (> 55)` |
 
-Prefixed with `Raising` / `Falling` (compared with `slope_lookback`), e.g. `Raising > 12 or 15 (Gaining good strength in Trend)` / `Falling (Losing strength in Trend)` as in the worksheet. ADX is non-directional; bias follows DMI only when ADX is rising and ≥ 12, otherwise neutral.
+Prefixed with `Raising` / `Falling` (compared with `slope_lookback`), e.g. `Raising > 12 or 15 (Gaining good strength in Trend)` / `Falling (Losing strength in Trend)` as in the worksheet. ADX is non-directional; bias follows DMI only when ADX is rising and ≥ 12, otherwise neutral. The current ADX value is shown as the last label (for example `ADX 26.50`), the same way RSI shows its value.
 
 ### 3. MACD (SMM All Indicators)
 

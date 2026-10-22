@@ -15,7 +15,8 @@ from .store import Bar, utc_now
 
 DAILY = "1D"
 DESKTOP_SOURCE = "desktop_bridge"
-DEFAULT_DESKTOP_READ_BUDGET = 40
+# Enough for one pass over the watchlist plus the in-run retry of every failed item.
+DEFAULT_DESKTOP_READ_BUDGET = 80
 
 
 class QuotaExhaustedError(Exception):

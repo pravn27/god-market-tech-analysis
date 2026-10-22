@@ -14,6 +14,8 @@ This documentation is the source of truth for the local-only God Market Technica
 
 For the system as it runs today, with HLD and LLD flow diagrams, see [as-built system design](architecture/as-built-system-design.md).
 
+The scheduled data jobs have their own design and runbook: [data-jobs system design](architecture/data-jobs-system-design.md) and [data-jobs runbook](operations/data-jobs-runbook.md). Commands and layout are in the [data-jobs README](../data-jobs/README.md).
+
 Start major features from the [product delivery roadmap](product/delivery-roadmap.md). The backend boundaries for every later epic are defined in the [Business Logic Backend foundation](architecture/business-logic-foundation.md).
 
 ## Documentation rule

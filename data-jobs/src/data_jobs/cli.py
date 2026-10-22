@@ -10,11 +10,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, Optional, Sequence
 
-from . import scheduler
+from . import scheduler, web
 from .config import DEFAULT_DB, ENV_FILE, GOD_MARKET_SRC_DIR, LOG_DIR, SRC_DIR
 from .registry import InstrumentListUnavailable, bar_source, registered_jobs
 from .runner import BarFetcher, JobSpec, JobStatus, coverage, job_status, tick
 from .store import connect, utc_now
+from .web import DEFAULT_PORT
 
 EXIT_SCHEDULE_ERROR = 1
 EXIT_NO_FETCHER = 2
@@ -41,6 +42,9 @@ def main(
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("tick", help="Run every job that is due.")
     commands.add_parser("status", help="Show each job's schedule, latest run and recent coverage.")
+    page = commands.add_parser("ui", help="Serve the progress page (read-only) on http://127.0.0.1:8765.")
+    page.add_argument("--host", default="127.0.0.1", help="Address to listen on (default: 127.0.0.1, this Mac only).")
+    page.add_argument("--port", type=int, default=DEFAULT_PORT, help=f"Port (default: {DEFAULT_PORT}).")
     schedule = commands.add_parser("schedule", help="Manage the macOS launchd agent that runs tick hourly.")
     actions = schedule.add_subparsers(dest="action", required=True)
     install = actions.add_parser("install", help="Install and load the agent, which runs now and then on the interval.")
@@ -51,6 +55,9 @@ def main(
 
     if args.command == "schedule":
         return _schedule(args, out)
+
+    if args.command == "ui":
+        return _ui(args, out)
 
     conn = connect(args.db)
     try:
@@ -128,6 +135,18 @@ def _bridge_environment(env_file: Path = ENV_FILE) -> Dict[str, str]:
                 from_file[key.strip()] = value.strip().strip("'\"")
     resolved = {key: os.environ.get(key) or from_file.get(key, "") for key in BRIDGE_ENV_KEYS}
     return {key: value for key, value in resolved.items() if value}
+
+
+def _ui(args: argparse.Namespace, out: Callable[[str], None]) -> int:
+    server = web.serve(Path(args.db), host=args.host, port=args.port)
+    out(f"Data jobs page: http://{args.host}:{args.port}  (Ctrl+C to stop)")
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        out("Stopped.")
+    finally:
+        server.server_close()
+    return 0
 
 
 def _tick(

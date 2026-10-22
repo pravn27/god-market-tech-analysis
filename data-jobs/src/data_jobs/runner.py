@@ -30,6 +30,9 @@ STALE_AFTER = timedelta(minutes=10)
 FAILED_RETRY_AFTER = timedelta(hours=1)
 # A job still not started this long after it was due is reported as overdue.
 OVERDUE_GRACE = timedelta(hours=2)
+# A partial or failed run is retried for its failed items only. Runs per period are capped at this many,
+# counting the first run, so a source that is down all day cannot keep the Desktop busy.
+MAX_RUNS_PER_PERIOD = 4
 ERROR_LIMIT = 500
 
 
@@ -126,12 +129,6 @@ class PeriodCoverage:
     status: str
 
 
-@dataclass
-class _Totals:
-    succeeded: int = 0
-    failed: int = 0
-
-
 def run_job(
     conn: sqlite3.Connection,
     spec: JobSpec,
@@ -163,11 +160,13 @@ def run_job(
             [(run_id, symbol, timeframe) for symbol in spec.symbols for timeframe in spec.timeframes],
         )
 
-    totals = _Totals()
     for symbol in spec.symbols:
         for timeframe in spec.timeframes:
-            _run_item(conn, run_id, spec, fetcher, symbol, timeframe, clock, totals)
-    return _finish_run(conn, spec, run_id, totals, clock())
+            _run_item(conn, run_id, spec, fetcher, symbol, timeframe, clock)
+    # One immediate retry for items that failed, for example a chart that did not load in time.
+    for symbol, timeframe in _items_with_status(conn, run_id, "failed"):
+        _run_item(conn, run_id, spec, fetcher, symbol, timeframe, clock)
+    return _finish_run(conn, spec, run_id, clock())
 
 
 def tick(
@@ -180,8 +179,9 @@ def tick(
     """Run every job whose next run time has passed. Jobs not yet due are left alone."""
     results: List[RunResult] = []
     for spec in specs:
-        if _is_due(conn, spec.name, clock()):
-            results.append(run_job(conn, spec, fetcher, clock=clock))
+        now = clock()
+        if _is_due(conn, spec.name, now):
+            results.append(run_job(conn, _spec_for_run(conn, spec, now), fetcher, clock=clock))
     return results
 
 
@@ -261,7 +261,6 @@ def _run_item(
     symbol: str,
     timeframe: str,
     clock: Clock,
-    totals: _Totals,
 ) -> None:
     try:
         result = fetcher.fetch(symbol, timeframe, count=spec.bar_count)
@@ -292,7 +291,6 @@ def _run_item(
                 "bars_updated = bars_updated + ?, bars_unchanged = bars_unchanged + ? WHERE id = ?",
                 (to_text(now), counts.inserted, counts.updated, counts.unchanged, run_id),
             )
-        totals.succeeded += 1
     except Exception as error:
         now = clock()
         with transaction(conn):
@@ -302,7 +300,6 @@ def _run_item(
                 (to_text(now), _describe(error), run_id, symbol, timeframe),
             )
             conn.execute("UPDATE job_runs SET heartbeat_at = ? WHERE id = ?", (to_text(now), run_id))
-        totals.failed += 1
 
 
 def on_trading_days(
@@ -381,27 +378,71 @@ def _finish_run(
     conn: sqlite3.Connection,
     spec: JobSpec,
     run_id: int,
-    totals: _Totals,
     finished: datetime,
 ) -> RunResult:
-    if totals.failed == 0:
+    counts = {
+        row["status"]: int(row["n"])
+        for row in conn.execute(
+            "SELECT status, COUNT(*) AS n FROM job_items WHERE run_id = ? GROUP BY status", (run_id,)
+        )
+    }
+    failed = counts.get("failed", 0)
+    succeeded = counts.get("succeeded", 0)
+    if failed == 0:
         status = SUCCEEDED
-    elif totals.succeeded == 0:
+    elif succeeded == 0:
         status = FAILED
     else:
         status = PARTIAL
-    next_run = finished + (FAILED_RETRY_AFTER if status == FAILED else spec.interval)
     with transaction(conn):
         conn.execute(
             "UPDATE job_runs SET status = ?, finished_at = ?, heartbeat_at = ? WHERE id = ?",
             (status, to_text(finished), to_text(finished), run_id),
         )
+        period = conn.execute("SELECT period_key FROM job_runs WHERE id = ?", (run_id,)).fetchone()["period_key"]
+        # The retry is due an hour later while the period still has runs to spare; otherwise the normal interval.
+        retry = status in (PARTIAL, FAILED) and _runs_in_period(conn, spec.name, period) < MAX_RUNS_PER_PERIOD
+        next_run = finished + (FAILED_RETRY_AFTER if retry else spec.interval)
         conn.execute(
             "UPDATE job_definitions SET next_run_at = ?, "
             "last_success_at = CASE WHEN ? = 'succeeded' THEN ? ELSE last_success_at END WHERE name = ?",
             (to_text(next_run), status, to_text(finished), spec.name),
         )
-    return RunResult(job_name=spec.name, run_id=run_id, status=status, items_failed=totals.failed)
+    return RunResult(job_name=spec.name, run_id=run_id, status=status, items_failed=failed)
+
+
+def _spec_for_run(conn: sqlite3.Connection, spec: JobSpec, now: datetime) -> JobSpec:
+    """A partial or failed run in this period is retried for its failed symbols only; otherwise the full job."""
+    latest = conn.execute(
+        "SELECT id, status, period_key FROM job_runs WHERE job_name = ? ORDER BY id DESC LIMIT 1",
+        (spec.name,),
+    ).fetchone()
+    if latest is None or latest["status"] not in (PARTIAL, FAILED):
+        return spec
+    if latest["period_key"] != spec.period_key(now):
+        return spec
+    failed = [symbol for symbol, _ in _items_with_status(conn, int(latest["id"]), "failed")]
+    if not failed:
+        return spec
+    return replace(spec, symbols=tuple(dict.fromkeys(failed)))
+
+
+def _items_with_status(conn: sqlite3.Connection, run_id: int, status: str) -> List[Tuple[str, str]]:
+    return [
+        (row["symbol"], row["timeframe"])
+        for row in conn.execute(
+            "SELECT symbol, timeframe FROM job_items WHERE run_id = ? AND status = ? ORDER BY rowid",
+            (run_id, status),
+        )
+    ]
+
+
+def _runs_in_period(conn: sqlite3.Connection, job_name: str, period_key: str) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM job_runs WHERE job_name = ? AND period_key = ?",
+        (job_name, period_key),
+    ).fetchone()
+    return int(row["n"])
 
 
 def _recover_stalled_runs(conn: sqlite3.Connection, now: datetime) -> None:

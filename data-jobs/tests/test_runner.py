@@ -89,7 +89,8 @@ def test_one_failed_symbol_makes_the_run_partial_and_keeps_the_rest():
     status = _status(conn)
     assert (status.progress.done, status.progress.failed) == (2, 1)
     assert status.last_success_at is None
-    assert status.next_run_at == to_text(NOW + timedelta(days=7))
+    # A partial run is retried for its failed symbol in an hour, not in a week.
+    assert status.next_run_at == to_text(NOW + timedelta(hours=1))
     error = conn.execute("SELECT error FROM job_items WHERE symbol = 'SPX'").fetchone()[0]
     assert "source unreachable" in error
 

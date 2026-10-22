@@ -9,7 +9,7 @@ import MarketGroupCards from './MarketGroupCards'
 import MarketInstrumentDetailDrawer from './MarketInstrumentDetailDrawer'
 import MarketGroupTable from './MarketGroupTable'
 import SentimentSummary from './SentimentSummary'
-import { globalMarketTimeframes, timeframeName } from './marketFormat'
+import { formatMarketDateTime, globalMarketTimeframes, timeframeName } from './marketFormat'
 import { useAllGlobalMarketTimeframes, useGlobalMarket } from './useGlobalMarket'
 import { GLOBAL_MARKET_LIVE_ENABLED, initialLiveState, pausedLiveState, useGlobalMarketLive } from './useGlobalMarketLive'
 
@@ -18,13 +18,6 @@ const completenessColor = {
   partial: 'warning',
   unavailable: 'error',
 } as const
-
-function formatReadAt(readAt: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(new Date(readAt))
-}
 
 export default function GlobalMarketPage() {
   const [mode, setMode] = useState<'single' | 'all'>('single')
@@ -129,7 +122,7 @@ export default function GlobalMarketPage() {
               <>
                 <div className="market-snapshot-meta">
                   <Typography.Text type="secondary">
-                    {data.watchlist_name} · {timeframeName(data.timeframe)} · read {formatReadAt(data.read_at)}
+                    {data.watchlist_name} · {timeframeName(data.timeframe)} · read {formatMarketDateTime(data.read_at)}
                   </Typography.Text>
                   <Tag color={completenessColor[data.completeness]}>{data.completeness.toUpperCase()}</Tag>
                   <GlobalMarketLiveBadge state={live} />

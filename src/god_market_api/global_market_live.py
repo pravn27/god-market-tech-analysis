@@ -45,7 +45,8 @@ class GlobalMarketLiveEnvelope(BaseModel):
 
 @dataclass(frozen=True)
 class GlobalMarketLiveSchedule:
-    refresh_interval: timedelta = timedelta(seconds=60)
+    # One refresh reads every instrument from the official MCP, so five minutes keeps the daily quota usable.
+    refresh_interval: timedelta = timedelta(minutes=5)
     heartbeat_interval: timedelta = timedelta(seconds=30)
 
 

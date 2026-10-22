@@ -1,5 +1,6 @@
 import { Tag, Typography } from 'antd'
 
+import { formatMarketTime } from './marketFormat'
 import type { GlobalMarketLiveState } from './useGlobalMarketLive'
 
 const statusLabel = {
@@ -16,10 +17,6 @@ const statusColor = {
   paused: 'default',
 } as const
 
-function formatTime(value: Date) {
-  return new Intl.DateTimeFormat(undefined, { timeStyle: 'medium' }).format(value)
-}
-
 interface GlobalMarketLiveBadgeProps {
   state: GlobalMarketLiveState
 }
@@ -31,7 +28,7 @@ export default function GlobalMarketLiveBadge({ state }: GlobalMarketLiveBadgePr
       <Tag color={statusColor[state.status]}>{statusLabel[state.status]}</Tag>
       {state.lastUpdate && (
         <Typography.Text type="secondary" className="sentiment-footnote">
-          Updated {formatTime(state.lastUpdate)}
+          Updated {formatMarketTime(state.lastUpdate)}
         </Typography.Text>
       )}
     </span>

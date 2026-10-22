@@ -3,6 +3,16 @@ import { marketColors } from '../../theme'
 
 export const NEUTRAL_BAND_PERCENT = 0.5
 
+/** Same 12-hour clock with AM/PM as the multi-timeframe page: "Oct 22, 2026, 7:41 PM". */
+export function formatMarketDateTime(value: string | Date) {
+  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', hour12: true }).format(new Date(value))
+}
+
+/** Time only, 12-hour with AM/PM, for the live "Updated" stamp: "7:41:05 PM". */
+export function formatMarketTime(value: Date) {
+  return new Intl.DateTimeFormat('en-US', { timeStyle: 'medium', hour12: true }).format(value)
+}
+
 export type SentimentLabel = 'Bullish' | 'Neutral' | 'Bearish'
 
 export interface SentimentBreakdown {

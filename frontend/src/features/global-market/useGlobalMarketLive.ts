@@ -10,10 +10,11 @@ import {
 export type GlobalMarketLiveStatus = 'connecting' | 'live' | 'reconnecting' | 'paused'
 
 /**
- * Live WebSocket refreshes are paused: every refresh calls the TradingView MCP once per instrument,
- * which exhausted the daily MCP quota. Set to true to re-enable them.
+ * Live WebSocket updates. The server must also opt in (GLOBAL_MARKET_LIVE_ENABLED=true); when it
+ * does not, the socket is rejected with 1008 and the badge shows PAUSED. Refreshes run every five
+ * minutes on the server, because each refresh calls the TradingView MCP once per instrument.
  */
-export const GLOBAL_MARKET_LIVE_ENABLED = false
+export const GLOBAL_MARKET_LIVE_ENABLED = true
 
 export interface GlobalMarketLiveState {
   status: GlobalMarketLiveStatus

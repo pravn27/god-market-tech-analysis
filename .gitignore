@@ -10,3 +10,6 @@ frontend/dist/
 .env.*
 !.env.example
 *.sqlite3
+
+# Data jobs: local database, WAL/shared-memory files and backups
+data-jobs/data/

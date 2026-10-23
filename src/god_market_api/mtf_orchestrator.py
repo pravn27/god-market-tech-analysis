@@ -6,6 +6,7 @@ from typing import Callable, Iterable
 
 from .models import (
     AnalysisTimeframe,
+    ChartContext,
     DataSource,
     MultiTimeframeCompleteness,
     MultiTimeframeContext,
@@ -13,6 +14,7 @@ from .models import (
     default_mtf_timeframes,
 )
 from .mtf_cache import LocalContextCache
+from .mtf_policy import CacheFreshness
 from .providers import ChartContextProvider, DataSourceUnavailableError
 
 
@@ -88,9 +90,9 @@ class MultiTimeframeContextOrchestrator:
         self, symbol: str, timeframe: AnalysisTimeframe, *, force_refresh: bool
     ) -> TimeframeContextResult:
         if not force_refresh:
-            cached = self._cache.get(self._source, symbol, timeframe)
-            if cached.context is not None:
-                return TimeframeContextResult(timeframe=timeframe, context=cached.context)
+            cached = self._cached_context(symbol, timeframe)
+            if cached is not None:
+                return TimeframeContextResult(timeframe=timeframe, context=cached)
 
         key = (symbol, timeframe)
         in_flight = self._inflight.get(key)
@@ -99,6 +101,23 @@ class MultiTimeframeContextOrchestrator:
             self._inflight[key] = in_flight
             in_flight.add_done_callback(lambda completed: self._remove_inflight(key, completed))
         return await asyncio.shield(in_flight)
+
+    def _cached_context(self, symbol: str, timeframe: AnalysisTimeframe) -> ChartContext | None:
+        """Prefer fresh context from any source the provider may return (MCP, or the Desktop fallback).
+
+        The cache stores each entry under the source that produced it, so a Desktop-sourced
+        fallback must be looked up under the Desktop key too. Stale context is used only if
+        no fresh context exists, which matches the previous behaviour.
+        """
+        stale: ChartContext | None = None
+        for source in dict.fromkeys((self._source, DataSource.DESKTOP_BRIDGE)):
+            lookup = self._cache.get(source, symbol, timeframe)
+            if lookup.context is None:
+                continue
+            if lookup.freshness is CacheFreshness.FRESH:
+                return lookup.context
+            stale = stale or lookup.context
+        return stale
 
     async def _fetch_from_provider(
         self, symbol: str, timeframe: AnalysisTimeframe

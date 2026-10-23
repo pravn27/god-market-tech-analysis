@@ -142,3 +142,50 @@ def test_provider_concurrency_limit_is_enforced() -> None:
         assert provider.maximum_active_requests == 2
 
     asyncio.run(scenario())
+
+
+class DesktopFallbackProvider(FixtureProvider):
+    """Stands in for FallbackChartProvider after the MCP quota is over: every candle is Desktop-sourced."""
+
+    async def get_chart_context(self, symbol: str, timeframe: str) -> ChartContext:
+        self.calls.append(timeframe)
+        return ChartContext(
+            symbol=symbol,
+            timeframe=timeframe,
+            source=DataSource.DESKTOP_BRIDGE,
+            source_timestamp=NOW,
+            freshness_state=SourceState.READY,
+            warnings=["Official TradingView MCP was unavailable; candles were read from TradingView Desktop."],
+        )
+
+
+def test_desktop_fallback_candles_are_reused_from_cache_instead_of_reswitching_the_chart() -> None:
+    provider = DesktopFallbackProvider()
+    orchestrator = MultiTimeframeContextOrchestrator(
+        provider,
+        timeframes=[AnalysisTimeframe.DAILY],
+        clock=lambda: NOW,
+    )
+
+    first = asyncio.run(orchestrator.get_context("NSE:NIFTY"))
+    second = asyncio.run(orchestrator.get_context("NSE:NIFTY"))
+
+    assert provider.calls == ["daily"]
+    assert second.completeness is MultiTimeframeCompleteness.COMPLETE
+    assert second.contexts[AnalysisTimeframe.DAILY].context.source is DataSource.DESKTOP_BRIDGE
+    assert first.contexts[AnalysisTimeframe.DAILY].context is not None
+
+
+def test_fresh_mcp_candles_are_still_preferred_over_cached_desktop_candles() -> None:
+    mcp_provider = FixtureProvider()
+    orchestrator = MultiTimeframeContextOrchestrator(
+        mcp_provider,
+        timeframes=[AnalysisTimeframe.DAILY],
+        clock=lambda: NOW,
+    )
+    asyncio.run(orchestrator.get_context("NSE:NIFTY"))
+
+    result = asyncio.run(orchestrator.get_context("NSE:NIFTY"))
+
+    assert mcp_provider.calls == ["daily"]
+    assert result.contexts[AnalysisTimeframe.DAILY].context.source is DataSource.OFFICIAL_MCP

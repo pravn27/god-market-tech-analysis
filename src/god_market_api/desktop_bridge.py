@@ -98,10 +98,18 @@ class TradingViewDesktopCli:
             raise
         if process.returncode != 0:
             raise DataSourceUnavailableError(f"The TradingView Desktop bridge command failed. {DESKTOP_START_HINT}")
+        text = stdout.decode("utf-8", errors="replace")
         try:
-            return json.loads(stdout.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise DataSourceUnavailableError("The Desktop bridge returned an unreadable response.") from error
+            return json.loads(text)
+        except json.JSONDecodeError as error:
+            # Keep the raw output start in the message so the cause (truncation, stray text, empty output)
+            # is visible without re-running the bridge by hand.
+            snippet = text[:200].strip() or "<empty>"
+            raise DataSourceUnavailableError(
+                "The Desktop bridge returned an unreadable response "
+                f"(command: {' '.join(args) or '<none>'}, exit 0, {len(stdout)} bytes, "
+                f"starts with: {snippet!r})."
+            ) from error
 
 
 class TradingViewDesktopWatchlistReader:

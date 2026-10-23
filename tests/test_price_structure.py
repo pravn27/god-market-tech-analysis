@@ -10,6 +10,7 @@ from god_market_api.price_structure import (
     TrendStructure,
     analyze_dow_structure_v2,
     detect_candle_patterns,
+    strong_candle_labels,
     dow_trend,
     find_pivots,
     locate_price,
@@ -267,8 +268,16 @@ def test_gap_and_strong_candle_labels():
     current = candle(106, 110, 106, 110)
     result = price_action(previous, current)
     assert "Gap up" in result.labels
-    assert "Strong Bullish Open (Open = Low)" in result.labels
-    assert "Strong Bullish Close (Close = High)" in result.labels
+    # Strong-candle labels now belong to the candlestick row, not the price action row.
+    assert not any("Strong" in label for label in result.labels)
+    assert strong_candle_labels(current) == [
+        "Strong Bullish Open (Open = Low)",
+        "Strong Bullish Close (Close = High)",
+        "Strong Bullish Candle (no upper & lower wicks)",
+    ]
+    patterns = detect_candle_patterns([previous, current], False, False)
+    assert "Strong Bullish Candle (no upper & lower wicks)" in patterns.labels
+    assert patterns.bias is Bias.BULLISH
 
 
 def test_inside_close_is_neutral():
@@ -329,8 +338,57 @@ def test_morning_and_evening_star():
     assert "Evening Star" in detect_candle_patterns(evening, False, False).labels
 
 
-def test_no_special_candle():
+def test_plain_candles_are_normal_bullish_or_bearish():
     candles = [candle(100, 106, 99, 104, 0), candle(104, 109, 102, 107, 1)]
     result = detect_candle_patterns(candles, False, False)
+    assert result.labels == ["Normal Bullish"]
+    assert result.bias is Bias.BULLISH
+    bearish = detect_candle_patterns([candle(100, 101, 95, 96)], False, False)
+    assert bearish.labels == ["Normal Bearish"]
+    assert bearish.bias is Bias.BEARISH
+
+
+def test_no_special_candle_only_when_there_is_no_range():
+    result = detect_candle_patterns([candle(100, 100, 100, 100)], False, False)
     assert result.labels == ["No special candle"]
     assert result.bias is Bias.NEUTRAL
+
+
+def test_engulf_at_top_is_not_significantly_bullish_and_neutral():
+    candles = [candle(110, 111, 104, 105, 0), candle(104, 113, 103, 112, 1)]
+    result = detect_candle_patterns(candles, at_support=False, at_resistance=True)
+    assert result.labels == ["Bullish Engulf at Resistance", "Not significantly bullish at top"]
+    assert result.bias is Bias.NEUTRAL
+
+
+def test_inverted_hammer_at_bottom_is_not_significantly_bearish():
+    inverted = candle(100, 110, 99.8, 100.5)
+    result = detect_candle_patterns([inverted], at_support=True, at_resistance=False)
+    assert "Inverted Hammer in Support" in result.labels
+    assert "Not significantly bearish at bottom" in result.labels
+    assert result.bias is Bias.NEUTRAL
+    assert detect_candle_patterns([inverted], False, False).bias is Bias.BEARISH
+
+
+def test_morning_star_at_top_is_caution_for_bulls():
+    morning = [candle(110, 111, 95, 96, 0), candle(96.5, 97, 96, 96.8, 1), candle(97, 106, 96.5, 105, 2)]
+    result = detect_candle_patterns(morning, at_support=False, at_resistance=True)
+    assert "Morning Star at Resistance" in result.labels
+    assert "Caution for bulls at top" in result.labels
+    assert result.bias is Bias.NEUTRAL
+
+
+def test_evening_star_at_bottom_is_caution_for_bears():
+    evening = [candle(90, 106, 89, 105, 0), candle(105.5, 106, 105, 105.2, 1), candle(104, 105, 92, 93, 2)]
+    result = detect_candle_patterns(evening, at_support=True, at_resistance=False)
+    assert "Evening Star in Support" in result.labels
+    assert "Caution for bears at bottom" in result.labels
+    assert result.bias is Bias.NEUTRAL
+
+
+def test_open_only_observation_does_not_suppress_the_normal_candle():
+    candles = [candle(100, 106, 99, 104, 0), candle(100, 110, 100, 108, 1)]
+    result = detect_candle_patterns(candles, False, False)
+    assert result.labels[0] == "Normal Bullish"
+    assert "Strong Bullish Open (Open = Low)" in result.labels
+    assert "Strong Bullish Candle (no upper & lower wicks)" not in result.labels

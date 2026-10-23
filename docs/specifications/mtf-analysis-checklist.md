@@ -50,7 +50,9 @@ Eight timeframe columns in four layers, exactly as the worksheet. A timeframe th
 | 1 | | Support / resistance levels (horizontal) | Yes (nearest swing levels); angular trendlines manual |
 | 1 | | Significant & event candles | Manual |
 | 2 | Dow Theory Advanced + Price Action | Current candle open/close vs previous candle OHLC | Yes |
-| 2 | | Special candles near support/resistance | Yes (candlestick patterns + location) |
+| 2 | | Heikin-Ashi candle | Yes (own row, neutral bias) |
+| 2 | | Candlestick pattern | Yes |
+| 2 | | Special candles near support/resistance | Yes (location only, neutral bias) |
 | 3 | Indicators | Bollinger Band | Yes |
 | 3 | | RSI | Yes |
 | 3 | | DMI | Yes |
@@ -155,15 +157,23 @@ Compare the latest candle (C) with the previous candle (P):
 | C.close < P.low | `Close < Prev. Candle Low` (bearish reversal confirmation) |
 | C.open > P.high / C.open > P.close | `Gap up` / `Bullish Open (above Prev. Close)` |
 | C.open < P.low / C.open < P.close | `Gap down` / `Bearish Open (below Prev. Close)` |
-| Open = low / close = high (within 2% of the candle range) | `Strong Bullish Open (Open = Low)` / `Strong Bullish Close (Close = High)` (and bearish equivalents) |
+| Open = low / close = high (within 2% of the candle range) | `Strong Bullish Open (Open = Low)` / `Strong Bullish Close (Close = High)` (and bearish equivalents). These now appear on the `candlestick_pattern` row, see below |
 
 All matching labels are listed. Bias: close beyond the previous high/low decides; otherwise close vs previous close; equal → neutral.
 
-### 2. Special candles (SMM Summary; PAPA Candles Imp)
+### 2. Candlestick pattern and special candles (SMM Summary; PAPA Candles Imp)
+
+The patterns below are shown on the `candlestick_pattern` row, with the pattern's bias. The `special_candles` row shows only whether the latest candle is at or near support or resistance (`At / near support`, `At / near resistance`, or `Not at support or resistance`), with neutral bias; the location bias sits on the location row.
+
+Rules for the `candlestick_pattern` row (SMM Summary candlestick list; PAPA Candles Imp):
+
+- **Normal candle:** when no other pattern matches, a close above the open is `Normal Bullish` (bullish bias) and a close below the open is `Normal Bearish` (bearish bias). No numeric rule is given in the source; this is the plain-candle reading chosen on 2026-10-23.
+- **Top / bottom of trend (PAPA):** a `Bullish Engulf` at the top, an `Inverted Hammer` at the bottom, and a `Bearish Engulf` at the bottom are shown with neutral bias and a note (`Not significantly bullish at top`, `Not significantly bearish at bottom`). A `Morning Star` at the top and an `Evening Star` at the bottom are neutral with `Caution for bulls at top` / `Caution for bears at bottom`. Elsewhere the bias is unchanged, and an unknown trend context keeps the fixed bias.
+- **Strong candle (PAPA):** a candle with no upper or lower wick (Open = Low and Close = High for bullish, Open = High and Close = Low for bearish, within the wick tolerance) is `Strong Bullish Candle (no upper & lower wicks)` or its bearish mirror, with the matching bias. The four open/close observations are listed on this row when the combined label does not apply.
 
 Detected on the latest two/three candles: Bullish/Bearish Engulf, Bullish/Bearish Piercing, Hammer, Inverted Hammer, Hanging Man, Doji, Spinning Top, Morning Star, Evening Star, Mother candle (latest candle inside the previous candle's range), Bullish Harami (latest bullish body inside the previous bearish body), Three White Soldiers and Three Black Crows (three candles closing progressively in one direction, each opening inside the prior real body). The label adds `in Support` / `at Resistance` when the location rule above says near. No pattern → `No special candle`, bias neutral.
 
-- **Heikin-Ashi colour** (appended to the `price_action` row, bias unchanged): computed from the closed candles (HA close = (O+H+L+C)/4; HA open = average of the previous HA open and close, seeded with (O+C)/2). The latest HA candle reads `Heikin-Ashi green`, `Heikin-Ashi red` or `Heikin-Ashi doji`. `with no lower wick` / `with no upper wick` is added when the HA body reaches that extreme.
+- **Heikin-Ashi colour** (own row `heikin_ashi`, neutral bias): computed from the closed candles (HA close = (O+H+L+C)/4; HA open = average of the previous HA open and close, seeded with (O+C)/2). The latest HA candle reads `Heikin-Ashi green`, `Heikin-Ashi red` or `Heikin-Ashi doji`. `with no lower wick` / `with no upper wick` is added when the HA body reaches that extreme.
 
 ### 3. Bollinger Band (PAPA BB Indicators Setups)
 
@@ -481,6 +491,8 @@ Confirmed by the user on 2026-10-09:
 | Added checklist evidence | Nine items approved on 2026-10-15 as labels inside existing rows (no new rows). Divergence, volume, breakout, Fibonacci, Heikin-Ashi, 3 SD and extended EMA stack labels leave bias unchanged; Double Top / Bottom sets bias only on a neckline break |
 | Divergence confirmation | Divergence swings confirm after 2 closed bars instead of 5 (`divergence_confirm_bars`), chosen by the user on 2026-10-16. Reason: the 5-bar rule hid the 16 Oct 1H top (57.94, %K 94.4 vs 57.53, %K 94.6), so 1H showed a stale bullish label. Dow structure keeps 5 bars |
 | Divergence row | Divergence moved out of the RSI, MACD and Stochastic rows into its own row directly after EMAs, so the three oscillator readings and their divergence sit in one place. Neutral bias. This supersedes the "no new rows" wording above for divergence only |
+| Heikin-Ashi and candlestick rows | Heikin-Ashi moved out of `price_action` into its own row (neutral bias). Candlestick patterns moved out of `Special candles` into their own row; `Special candles` now shows the support/resistance location only (neutral bias). Approved 2026-10-23. Supersedes the "no new rows" wording above for these two items only |
+| Candlestick rules (SMM + PAPA) | Plain candles are `Normal Bullish` / `Normal Bearish`. Top/bottom rules set neutral bias for Engulf, Inverted Hammer, Morning Star and Evening Star at the weaker end of the trend. Strong no-wick candles and their open/close observations moved from the `price_action` row to the `candlestick_pattern` row. Approved 2026-10-23 |
 
 ## Open questions
 

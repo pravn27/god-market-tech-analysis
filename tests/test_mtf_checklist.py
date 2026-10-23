@@ -619,7 +619,29 @@ def test_checklist_rows_now_automate_volume_and_chart_patterns_without_new_rows(
     rows = {row.id: row for row in CHECKLIST_ROWS}
     assert rows["weapon_volume"].automated is True
     assert rows["chart_pattern"].automated is True
-    assert len(CHECKLIST_ROWS) == 22
+    assert len(CHECKLIST_ROWS) == 24
+
+
+def test_section_two_rows_are_price_action_heikin_ashi_candlestick_then_special_candles():
+    row_ids = [row.id for row in CHECKLIST_ROWS if row.section == "2. Dow Theory Advanced + Price Action"]
+    assert row_ids == ["price_action", "heikin_ashi", "candlestick_pattern", "special_candles"]
+
+
+def test_heikin_ashi_has_its_own_neutral_row_and_no_longer_sits_in_price_action():
+    evaluation = evaluate_timeframe(make_candles(), T)
+    heikin = evaluation.cells["heikin_ashi"]
+    assert heikin.bias is Bias.NEUTRAL
+    assert heikin.labels and all(label.startswith("Heikin-Ashi") for label in heikin.labels)
+    assert not any("Heikin-Ashi" in label for label in evaluation.cells["price_action"].labels)
+
+
+def test_candlestick_pattern_row_carries_the_pattern_bias_and_special_candles_is_location_only():
+    evaluation = evaluate_timeframe(make_candles(), T)
+    pattern = evaluation.cells["candlestick_pattern"]
+    location = evaluation.cells["special_candles"]
+    assert pattern.rule_ids == ["candles"]
+    assert location.bias is Bias.NEUTRAL
+    assert location.labels[0] in {"At / near support", "At / near resistance", "Not at support or resistance"}
 
 
 def test_divergence_row_sits_directly_after_emas_in_the_indicators_section():

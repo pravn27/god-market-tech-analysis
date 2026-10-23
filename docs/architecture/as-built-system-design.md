@@ -408,7 +408,7 @@ flowchart TD
     C --> PA["locate_price, price_action,<br/>detect_candle_patterns"]
     SER --> CELLS["Checklist cells<br/>bollinger_cell, rsi_cell, dmi_cell, adx_cell,<br/>macd_cell, stochastic_cell, ema_cell"]
     CELLS -. "ChecklistCell: labels, bias, values, rule_ids" .-> ROWS
-    CELLS --> ROWS["CHECKLIST_ROWS (21 rows)"]
+    CELLS --> ROWS["CHECKLIST_ROWS (24 rows)"]
     DOW --> EVAL
     PA --> EVAL
     ROWS --> EVAL["TimeframeEvaluation"]

@@ -3,8 +3,9 @@
 import json
 from datetime import date, datetime, time, timedelta, timezone
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Callable, Dict, Optional, Protocol
 
+from .global_market import WatchlistUnavailableError
 from .models import (
     AnalysisTimeframe,
     Bias,
@@ -24,6 +25,8 @@ from .models import (
 from .mtf_checklist import CHECKLIST_ROWS, ChecklistThresholds, TimeframeEvaluation, evaluate_timeframe
 from .mtf_orchestrator import MultiTimeframeContextOrchestrator
 from .mtf_screens import DISCLAIMER, evaluate_screens
+from .providers import DataSourceUnavailableError
+from .watchlist_source import check_matches_recorded, parse_bridge_sequence, symbols_of
 
 SNAPSHOT_PATH = Path(__file__).parent / "data" / "mtf_watchlist.json"
 
@@ -110,35 +113,130 @@ def is_live_candle(timeframe: AnalysisTimeframe, opened_at: datetime, now: datet
     return now < candle_closes_at(timeframe, opened_at, exchange)
 
 
+class MtfCatalogSource(Protocol):
+    async def catalog(self) -> MtfInstrumentCatalog: ...
+
+
+class DesktopWatchlistPayloadReader(Protocol):
+    async def watchlist_payload(self) -> object: ...
+
+
+CATALOG_ORIGIN_DESKTOP = "tradingview_desktop"
+CATALOG_ORIGIN_SNAPSHOT = "recorded_snapshot"
+UNSECTIONED_NAME = "WATCHLIST"
+
+
+class DesktopMtfCatalogSource:
+    """The MTF instrument list from the visible TradingView Desktop watchlist, used only while the MCP quota is over.
+
+    While the official quota is available, the recorded snapshot is returned and the Desktop is not read.
+    While it is used up, the visible watchlist is read (read-only: no watchlist or chart switching). It is
+    accepted only if its rows match the recorded snapshot. Its order and section names come from the
+    snapshot; visible symbols that the snapshot does not list go into a trailing ``WATCHLIST`` section.
+    Any failure returns the snapshot. The result is cached for ``cache_for`` in either case.
+    """
+
+    def __init__(
+        self,
+        reader: DesktopWatchlistPayloadReader,
+        snapshot: MtfInstrumentCatalog,
+        *,
+        quota_blocked: Callable[[], bool],
+        clock: Callable[[], datetime] = _utc_now,
+        cache_for: timedelta = timedelta(minutes=5),
+    ) -> None:
+        self._reader = reader
+        self._snapshot = snapshot
+        self._quota_blocked = quota_blocked
+        self._clock = clock
+        self._cache_for = cache_for
+        self._recorded = {
+            instrument.symbol.upper() for section in snapshot.sections for instrument in section.instruments
+        }
+        self._cached: MtfInstrumentCatalog | None = None
+        self._cache_until: datetime | None = None
+
+    async def catalog(self) -> MtfInstrumentCatalog:
+        if not self._quota_blocked():
+            return self._snapshot
+        now = self._clock()
+        if self._cached is not None and self._cache_until is not None and now < self._cache_until:
+            return self._cached
+        try:
+            groups = parse_bridge_sequence(await self._reader.watchlist_payload())
+            check_matches_recorded(groups, self._recorded, self._snapshot.watchlist_name)
+            result = self._from_visible(symbols_of(groups), groups, now)
+        except (DataSourceUnavailableError, WatchlistUnavailableError):
+            result = self._snapshot
+        self._cached = result
+        self._cache_until = now + self._cache_for
+        return result
+
+    def _from_visible(self, visible: set[str], groups, now: datetime) -> MtfInstrumentCatalog:
+        ordered_visible = [item.symbol.upper() for group in groups for item in group.instruments]
+        display = {item.symbol.upper(): item.display_name for group in groups for item in group.instruments}
+        sections: list[MtfInstrumentSection] = []
+        for section in self._snapshot.sections:
+            instruments = [
+                MtfInstrument(symbol=instrument.symbol.upper(), display_name=instrument.display_name)
+                for instrument in section.instruments
+                if instrument.symbol.upper() in visible
+            ]
+            if instruments:
+                sections.append(MtfInstrumentSection(name=section.name, instruments=instruments))
+        extra = [
+            MtfInstrument(symbol=symbol, display_name=display[symbol])
+            for symbol in ordered_visible
+            if symbol not in self._recorded
+        ]
+        if extra:
+            sections.append(MtfInstrumentSection(name=UNSECTIONED_NAME, instruments=extra))
+        symbols = [item.symbol for section in sections for item in section.instruments]
+        default = self._snapshot.default_symbol.upper()
+        return MtfInstrumentCatalog(
+            watchlist_name=self._snapshot.watchlist_name,
+            recorded_at=now,
+            default_symbol=default if default in symbols else symbols[0],
+            sections=sections,
+            origin=CATALOG_ORIGIN_DESKTOP,
+        )
+
+
+def _symbols_of(catalog: MtfInstrumentCatalog) -> set[str]:
+    return {instrument.symbol for section in catalog.sections for instrument in section.instruments}
+
+
 class MultiTimeframeAnalysisService:
     def __init__(
         self,
         orchestrator: MultiTimeframeContextOrchestrator,
         *,
         catalog: Optional[MtfInstrumentCatalog] = None,
+        catalog_source: Optional[MtfCatalogSource] = None,
         thresholds: Optional[ChecklistThresholds] = None,
         clock: Callable[[], datetime] = _utc_now,
     ) -> None:
         self._orchestrator = orchestrator
-        self._catalog = catalog or load_instrument_catalog()
+        self._snapshot = catalog or load_instrument_catalog()
+        self._catalog_source = catalog_source
         self._thresholds = thresholds or ChecklistThresholds()
         self._clock = clock
-        self._symbols = {
-            instrument.symbol for section in self._catalog.sections for instrument in section.instruments
-        }
 
-    @property
-    def catalog(self) -> MtfInstrumentCatalog:
-        return self._catalog
+    async def current_catalog(self) -> MtfInstrumentCatalog:
+        """The list the page should offer right now: the snapshot, or the visible Desktop watchlist during fallback."""
+        if self._catalog_source is None:
+            return self._snapshot
+        return await self._catalog_source.catalog()
 
-    def is_known(self, symbol: str) -> bool:
-        return symbol.strip().upper() in self._symbols
+    async def is_known(self, symbol: str) -> bool:
+        return symbol.strip().upper() in _symbols_of(await self.current_catalog())
 
     async def analyze(self, symbol: str, *, force_refresh: bool = False) -> MultiTimeframeAnalysis:
         normalized = symbol.strip().upper()
-        if normalized not in self._symbols:
+        catalog = await self.current_catalog()
+        if normalized not in _symbols_of(catalog):
             raise UnknownInstrumentError(
-                f"{normalized or 'The symbol'} is not in the {self._catalog.watchlist_name} snapshot."
+                f"{normalized or 'The symbol'} is not in the {catalog.watchlist_name} list."
             )
 
         timeframes = default_mtf_timeframes()

@@ -87,6 +87,8 @@ CHECKLIST_ROWS: tuple[ChecklistRow, ...] = (
     ChecklistRow("trendlines", SECTION_CONTEXT, "Angular trendlines", False),
     ChecklistRow("significant_candles", SECTION_CONTEXT, "Mark significant & event candles", False),
     ChecklistRow("price_action", SECTION_PRICE_ACTION, "Current candle OPEN / CLOSE vs previous candle OHLC", True),
+    ChecklistRow("heikin_ashi", SECTION_PRICE_ACTION, "Heikin-Ashi candle", True),
+    ChecklistRow("candlestick_pattern", SECTION_PRICE_ACTION, "Candlestick pattern", True),
     ChecklistRow("special_candles", SECTION_PRICE_ACTION, "Special candles near / at support & resistance", True),
     ChecklistRow("bollinger", SECTION_INDICATORS, "Bollinger Band", True),
     ChecklistRow("rsi", SECTION_INDICATORS, "RSI", True),
@@ -544,7 +546,7 @@ def ema_cell(closes: Sequence[float], emas: Mapping[int, Series], t: ChecklistTh
     return ChecklistCell(labels=labels, bias=bias, values=values, rule_ids=["ema"])
 
 
-# Evidence added inside existing rows (divergence, volume, breakouts, Fibonacci, chart patterns, Heikin-Ashi)
+# Evidence added inside existing rows (divergence, volume, breakouts, Fibonacci, chart patterns)
 
 FIB_LEVELS = (0.236, 0.382, 0.5, 0.618, 0.786)
 
@@ -892,7 +894,7 @@ def evaluate_timeframe(
         )
 
     if len(candles) >= 2:
-        action = price_action(candles[-2], candles[-1], t.wick_tolerance)
+        action = price_action(candles[-2], candles[-1])
         cells["price_action"] = ChecklistCell(
             labels=action.labels,
             bias=action.bias,
@@ -910,17 +912,30 @@ def evaluate_timeframe(
         )
     else:
         cells["price_action"] = _unavailable("Needs at least two candles.", "price_action")
-    cells["price_action"] = _with_labels(
-        cells["price_action"], heikin_ashi_labels(structure_candles), "heikin-ashi"
+    ha_labels = heikin_ashi_labels(structure_candles)
+    cells["heikin_ashi"] = (
+        ChecklistCell(labels=ha_labels, bias=Bias.NEUTRAL, rule_ids=["heikin-ashi"])
+        if ha_labels
+        else _unavailable("Needs candles for Heikin-Ashi.", "heikin-ashi")
     )
 
     patterns = detect_candle_patterns(
         candles,
         at_support=location.kind is LocationKind.NEAR_SUPPORT,
         at_resistance=location.kind is LocationKind.NEAR_RESISTANCE,
+        wick_tolerance=t.wick_tolerance,
     )
-    cells["special_candles"] = ChecklistCell(
+    cells["candlestick_pattern"] = ChecklistCell(
         labels=patterns.labels, bias=patterns.bias, values={"location": location.label}, rule_ids=["candles"]
+    )
+
+    # Location only: the S&R bias sits on the location row and the pattern bias on candlestick_pattern.
+    near_level = {
+        LocationKind.NEAR_SUPPORT: "At / near support",
+        LocationKind.NEAR_RESISTANCE: "At / near resistance",
+    }.get(location.kind, "Not at support or resistance")
+    cells["special_candles"] = ChecklistCell(
+        labels=[near_level], bias=Bias.NEUTRAL, values={"location": location.label}, rule_ids=["candle-location"]
     )
 
     cells["bollinger"] = bollinger_cell(

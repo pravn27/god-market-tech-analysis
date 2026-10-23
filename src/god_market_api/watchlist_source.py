@@ -192,21 +192,33 @@ def parse_bridge_sequence(
     return parse_watchlist_groups(entries, display_names=display_names)
 
 
-def _check_is_global_indices(groups: Sequence[WatchlistGroupDefinition]) -> None:
-    """Reject a Desktop watchlist that is not PS_Global_Indices.
+def symbols_of(groups: Sequence[WatchlistGroupDefinition]) -> set[str]:
+    """Upper-cased symbols of every section, for comparing a watchlist with a recorded snapshot."""
+    return {item.symbol.upper() for group in groups for item in group.instruments}
+
+
+def check_matches_recorded(
+    groups: Sequence[WatchlistGroupDefinition], recorded: set[str], watchlist_name: str
+) -> None:
+    """Reject a visible Desktop watchlist that is not the named recorded watchlist.
 
     The bridge does not report the watchlist name, so the visible rows are compared with the recorded
     snapshot: at least three quarters of it must be present and at most a quarter of the rows may be new.
     """
-    recorded = {item.symbol.upper() for group in RECORDED_WATCHLIST_GROUPS for item in group.instruments}
-    rows = {item.symbol.upper() for group in groups for item in group.instruments}
+    rows = symbols_of(groups)
     if not rows:
         raise WatchlistUnavailableError("The visible TradingView Desktop watchlist has no instruments.")
     present = len(rows & recorded)
     if present * 4 < len(recorded) * 3 or (len(rows) - present) * 4 > len(rows):
         raise WatchlistUnavailableError(
-            "The visible TradingView Desktop watchlist is not PS_Global_Indices; select it in TradingView Desktop."
+            f"The visible TradingView Desktop watchlist is not {watchlist_name}; select it in TradingView Desktop."
         )
+
+
+def _check_is_global_indices(groups: Sequence[WatchlistGroupDefinition]) -> None:
+    check_matches_recorded(
+        groups, symbols_of(RECORDED_WATCHLIST_GROUPS), WATCHLIST_NAME
+    )
 
 
 class DesktopWatchlistSectionSource:

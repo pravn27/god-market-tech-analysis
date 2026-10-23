@@ -280,12 +280,17 @@ class MtfInstrumentSection(BaseModel):
 
 
 class MtfInstrumentCatalog(BaseModel):
-    """Recorded, read-only snapshot of the TradingView watchlist offered on the page."""
+    """Read-only list of the TradingView watchlist offered on the page.
+
+    ``origin`` says where the list came from: the recorded snapshot, or the visible TradingView
+    Desktop watchlist while the official MCP quota is used up.
+    """
 
     watchlist_name: str
     recorded_at: datetime
     default_symbol: str
     sections: List[MtfInstrumentSection] = Field(default_factory=list)
+    origin: str = "recorded_snapshot"
 
 
 class MtfTimeframeStatus(BaseModel):

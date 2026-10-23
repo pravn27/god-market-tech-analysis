@@ -133,10 +133,16 @@ if [[ "$BRIDGE_READY" != true ]]; then
 fi
 echo "TradingView bridge is ready."
 
-EXPECTED_SYMBOLS="$(uv run --env-file "$ENV_FILE" python -c '
+EXPECTED_GLOBAL="$(uv run --env-file "$ENV_FILE" python -c '
 from god_market_api.global_market import RECORDED_WATCHLIST_GROUPS
 for group in RECORDED_WATCHLIST_GROUPS:
     for instrument in group.instruments:
+        print(instrument.symbol)
+')"
+EXPECTED_MTF="$(uv run --env-file "$ENV_FILE" python -c '
+from god_market_api.mtf_analysis import load_instrument_catalog
+for section in load_instrument_catalog().sections:
+    for instrument in section.instruments:
         print(instrument.symbol)
 ')"
 WATCHLIST_JSON="$("$NODE_EXECUTABLE" "$BRIDGE_CLI" watchlist get)"
@@ -155,11 +161,16 @@ ACTUAL_SYMBOLS="$(printf '%s' "$WATCHLIST_JSON" | "$NODE_EXECUTABLE" -e '
   });
 ')" || true
 
-if [[ "$ACTUAL_SYMBOLS" == "$EXPECTED_SYMBOLS" ]]; then
-  echo "Active watchlist matches PS_Global_Indices (30 instruments)."
+# TradingView shows one watchlist at a time, so only one of these pages can use the Desktop fallback.
+if [[ "$ACTUAL_SYMBOLS" == "$EXPECTED_GLOBAL" ]]; then
+  echo "Active watchlist is PS_Global_Indices. Global Market can use the Desktop fallback."
+  echo "The MTF page's Desktop fallback needs PS_Commodity to be the active watchlist."
+elif [[ "$ACTUAL_SYMBOLS" == "$EXPECTED_MTF" ]]; then
+  echo "Active watchlist is PS_Commodity. The MTF page can use the Desktop fallback when the MCP quota is used up."
+  echo "Global Market's Desktop fallback is unavailable until PS_Global_Indices is selected in TradingView."
 else
-  echo "WARNING: The active TradingView watchlist is not the approved PS_Global_Indices list." >&2
-  echo "The API can still start and use Official MCP, but Desktop fallback will be rejected until you select PS_Global_Indices in TradingView." >&2
+  echo "WARNING: The active TradingView watchlist is neither PS_Global_Indices nor PS_Commodity." >&2
+  echo "The API can still start and use Official MCP, but Desktop fallbacks will be rejected until you select one of them in TradingView." >&2
 fi
 
 echo "Starting the local API at http://127.0.0.1:8000 (Ctrl+C to stop)."

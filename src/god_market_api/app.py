@@ -20,7 +20,12 @@ from .models import (
     MultiTimeframeContext,
     ServiceHealth,
 )
-from .mtf_analysis import MultiTimeframeAnalysisService, UnknownInstrumentError
+from .mtf_analysis import (
+    DesktopMtfCatalogSource,
+    MultiTimeframeAnalysisService,
+    UnknownInstrumentError,
+    load_instrument_catalog,
+)
 from .mtf_live import MtfLiveHub, wait_for_client_disconnect
 from .mtf_orchestrator import MultiTimeframeContextOrchestrator
 from .oauth import OfficialMCPOAuthCoordinator
@@ -55,7 +60,19 @@ def create_app(
         FallbackChartProvider(active_provider, active_desktop_candles) if provider is None else active_provider
     )
     active_mtf_orchestrator = mtf_orchestrator or MultiTimeframeContextOrchestrator(active_mtf_provider)
-    active_mtf_analysis = mtf_analysis or MultiTimeframeAnalysisService(active_mtf_orchestrator)
+    # The MTF instrument list reads the visible Desktop watchlist only while the official quota is used up.
+    active_mtf_catalog_source = (
+        DesktopMtfCatalogSource(
+            active_desktop_watchlist_reader,
+            load_instrument_catalog(),
+            quota_blocked=lambda: oauth_coordinator.quota_blocked(),
+        )
+        if provider is None
+        else None
+    )
+    active_mtf_analysis = mtf_analysis or MultiTimeframeAnalysisService(
+        active_mtf_orchestrator, catalog_source=active_mtf_catalog_source
+    )
     active_mtf_live = mtf_live or MtfLiveHub(active_mtf_analysis, active_mtf_orchestrator)
     active_watchlist_source = watchlist_source or (
         FallbackWatchlistSource(
@@ -134,7 +151,7 @@ def create_app(
         tags=["mtf-analysis"],
     )
     async def mtf_analysis_instruments() -> MtfInstrumentCatalog:
-        return active_mtf_analysis.catalog
+        return await active_mtf_analysis.current_catalog()
 
     @app.get(
         "/api/v1/mtf-analysis/{symbol}",
@@ -153,7 +170,7 @@ def create_app(
     @app.websocket("/api/v1/mtf-analysis/{symbol}/live")
     async def mtf_analysis_live(websocket: WebSocket, symbol: str) -> None:
         normalized = symbol.strip().upper()
-        if not active_mtf_analysis.is_known(normalized):
+        if not await active_mtf_analysis.is_known(normalized):
             await websocket.close(code=1008, reason="Unknown instrument.")
             return
         await websocket.accept()

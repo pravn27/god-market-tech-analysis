@@ -308,6 +308,10 @@ class OfficialMCPOAuthCoordinator:
             return False
         return await self._token_status(tokens) != "reconnect_required"
 
+    def quota_blocked(self) -> bool:
+        """True while the daily official quota is known to be used up (until midnight UTC)."""
+        return self._quota_blocked_until is not None and self._clock() < self._quota_blocked_until
+
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         """Call a read-only official-MCP tool with application-owned credentials.
 

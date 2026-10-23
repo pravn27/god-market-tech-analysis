@@ -341,8 +341,11 @@ def _marching(candles: Sequence[Candle], rising: bool) -> bool:
     return True
 
 
-def price_action(previous: Candle, current: Candle, wick_tolerance: float = 0.02) -> Evidence:
-    """Compare the current candle's open/close with the previous candle (PAPA Advanced Dow)."""
+def price_action(previous: Candle, current: Candle) -> Evidence:
+    """Compare the current candle's open/close with the previous candle (PAPA Advanced Dow).
+
+    Strong-candle (no wick) labels are single-candle evidence and live in ``strong_candle_labels``.
+    """
     labels: List[str] = []
     if _is_bearish(previous) and current.close > previous.close:
         labels.append("Close > Prev. Bearish Close")
@@ -365,17 +368,6 @@ def price_action(previous: Candle, current: Candle, wick_tolerance: float = 0.02
         labels.append("Gap down")
     elif current.open < previous.close:
         labels.append("Bearish Open (below Prev. Close)")
-
-    tolerance = (current.high - current.low) * wick_tolerance
-    if current.high > current.low:
-        if _is_bullish(current) and current.open - current.low <= tolerance:
-            labels.append("Strong Bullish Open (Open = Low)")
-        if _is_bullish(current) and current.high - current.close <= tolerance:
-            labels.append("Strong Bullish Close (Close = High)")
-        if _is_bearish(current) and current.high - current.open <= tolerance:
-            labels.append("Strong Bearish Open (Open = High)")
-        if _is_bearish(current) and current.close - current.low <= tolerance:
-            labels.append("Strong Bearish Close (Close = Low)")
 
     if current.close > previous.high:
         bias = Bias.BULLISH
@@ -401,6 +393,41 @@ def _prior_direction(candles: Sequence[Candle], lookback: int = 5) -> Optional[s
     return None
 
 
+WICK_TOLERANCE = 0.02
+STRONG_BULLISH = "Strong Bullish Candle (no upper & lower wicks)"
+STRONG_BEARISH = "Strong Bearish Candle (no upper & lower wicks)"
+
+
+def strong_candle_labels(candle: Candle, wick_tolerance: float = WICK_TOLERANCE) -> List[str]:
+    """PAPA open/close rules on one candle: Open = Low / Close = High, and the bearish mirror.
+
+    The combined label is added only when both ends hold, i.e. the candle has no upper and lower wick.
+    """
+    if candle.high <= candle.low:
+        return []
+    tolerance = (candle.high - candle.low) * wick_tolerance
+    labels: List[str] = []
+    if _is_bullish(candle):
+        open_at_low = candle.open - candle.low <= tolerance
+        close_at_high = candle.high - candle.close <= tolerance
+        if open_at_low:
+            labels.append("Strong Bullish Open (Open = Low)")
+        if close_at_high:
+            labels.append("Strong Bullish Close (Close = High)")
+        if open_at_low and close_at_high:
+            labels.append(STRONG_BULLISH)
+    if _is_bearish(candle):
+        open_at_high = candle.high - candle.open <= tolerance
+        close_at_low = candle.close - candle.low <= tolerance
+        if open_at_high:
+            labels.append("Strong Bearish Open (Open = High)")
+        if close_at_low:
+            labels.append("Strong Bearish Close (Close = Low)")
+        if open_at_high and close_at_low:
+            labels.append(STRONG_BEARISH)
+    return labels
+
+
 def _single_candle_pattern(c: Candle) -> Optional[str]:
     candle_range = c.high - c.low
     if candle_range <= 0:
@@ -419,23 +446,37 @@ def _single_candle_pattern(c: Candle) -> Optional[str]:
     return None
 
 
-def detect_candle_patterns(candles: Sequence[Candle], at_support: bool, at_resistance: bool) -> Evidence:
-    """Candlestick patterns ending at the latest candle, annotated with location."""
+def detect_candle_patterns(
+    candles: Sequence[Candle],
+    at_support: bool,
+    at_resistance: bool,
+    wick_tolerance: float = WICK_TOLERANCE,
+) -> Evidence:
+    """Candlestick patterns ending at the latest candle (SMM Summary and PAPA Candles Imp), annotated with location.
+
+    The same pattern can mean less at the other end of the trend: PAPA says an Engulf or Inverted Hammer
+    at the top is not significantly bullish, a Morning Star at the top is a caution for bulls, and so on.
+    In that case the bias is neutral and a separate label says why. Outside those cases the bias is unchanged.
+    """
     if not candles:
         return Evidence(["No candles"], Bias.UNAVAILABLE)
     context = "bottom" if at_support else "top" if at_resistance else _prior_direction(candles)
-    found: List[tuple[str, Bias]] = []
+    # (name, bias, note). The note becomes its own label when the location weakens the pattern.
+    found: List[tuple[str, Bias, Optional[str]]] = []
     current = candles[-1]
 
     shape = _single_candle_pattern(current)
     if shape == "hammer":
-        found.append(("Hanging Man", Bias.BEARISH) if context == "top" else ("Hammer", Bias.BULLISH))
+        found.append(("Hanging Man", Bias.BEARISH, None) if context == "top" else ("Hammer", Bias.BULLISH, None))
     elif shape == "inverted_hammer":
-        found.append(("Inverted Hammer", Bias.BEARISH))
+        if context == "bottom":
+            found.append(("Inverted Hammer", Bias.NEUTRAL, "Not significantly bearish at bottom"))
+        else:
+            found.append(("Inverted Hammer", Bias.BEARISH, None))
     elif shape == "doji":
-        found.append(("Doji", Bias.NEUTRAL))
+        found.append(("Doji", Bias.NEUTRAL, None))
     elif shape == "spinning_top":
-        found.append(("Spinning Top", Bias.NEUTRAL))
+        found.append(("Spinning Top", Bias.NEUTRAL, None))
 
     if len(candles) >= 2:
         previous = candles[-2]
@@ -449,7 +490,10 @@ def detect_candle_patterns(candles: Sequence[Candle], at_support: bool, at_resis
             and current.close >= previous.open
             and current_body > previous_body
         ):
-            found.append(("Bullish Engulf", Bias.BULLISH))
+            if context == "top":
+                found.append(("Bullish Engulf", Bias.NEUTRAL, "Not significantly bullish at top"))
+            else:
+                found.append(("Bullish Engulf", Bias.BULLISH, None))
         elif (
             _is_bullish(previous)
             and _is_bearish(current)
@@ -457,21 +501,24 @@ def detect_candle_patterns(candles: Sequence[Candle], at_support: bool, at_resis
             and current.close <= previous.open
             and current_body > previous_body
         ):
-            found.append(("Bearish Engulf", Bias.BEARISH))
+            if context == "bottom":
+                found.append(("Bearish Engulf", Bias.NEUTRAL, "Not significantly bearish at bottom"))
+            else:
+                found.append(("Bearish Engulf", Bias.BEARISH, None))
         elif (
             _is_bearish(previous)
             and _is_bullish(current)
             and current.open < previous.close
             and previous_mid < current.close < previous.open
         ):
-            found.append(("Bullish Piercing", Bias.BULLISH))
+            found.append(("Bullish Piercing", Bias.BULLISH, None))
         elif (
             _is_bullish(previous)
             and _is_bearish(current)
             and current.open > previous.close
             and previous.open < current.close < previous_mid
         ):
-            found.append(("Bearish Piercing", Bias.BEARISH))
+            found.append(("Bearish Piercing", Bias.BEARISH, None))
         if (
             _is_bearish(previous)
             and _is_bullish(current)
@@ -479,9 +526,9 @@ def detect_candle_patterns(candles: Sequence[Candle], at_support: bool, at_resis
             and current.close <= previous.open
             and current_body < previous_body
         ):
-            found.append(("Bullish Harami", Bias.BULLISH))
+            found.append(("Bullish Harami", Bias.BULLISH, None))
         if current.high <= previous.high and current.low >= previous.low:
-            found.append(("Mother candle", Bias.NEUTRAL))
+            found.append(("Mother candle", Bias.NEUTRAL, None))
 
     if len(candles) >= 3:
         first, middle = candles[-3], candles[-2]
@@ -491,21 +538,43 @@ def detect_candle_patterns(candles: Sequence[Candle], at_support: bool, at_resis
         first_mid = (first.open + first.close) / 2
         if first_range > 0 and first_body >= 0.5 * first_range and middle_body <= 0.3 * first_body:
             if _is_bearish(first) and _is_bullish(current) and current.close > first_mid:
-                found.append(("Morning Star", Bias.BULLISH))
+                if context == "top":
+                    found.append(("Morning Star", Bias.NEUTRAL, "Caution for bulls at top"))
+                else:
+                    found.append(("Morning Star", Bias.BULLISH, None))
             elif _is_bullish(first) and _is_bearish(current) and current.close < first_mid:
-                found.append(("Evening Star", Bias.BEARISH))
+                if context == "bottom":
+                    found.append(("Evening Star", Bias.NEUTRAL, "Caution for bears at bottom"))
+                else:
+                    found.append(("Evening Star", Bias.BEARISH, None))
 
         last_three = candles[-3:]
         if all(_is_bullish(c) for c in last_three) and _marching(last_three, rising=True):
-            found.append(("Three White Soldiers", Bias.BULLISH))
+            found.append(("Three White Soldiers", Bias.BULLISH, None))
         elif all(_is_bearish(c) for c in last_three) and _marching(last_three, rising=False):
-            found.append(("Three Black Crows", Bias.BEARISH))
+            found.append(("Three Black Crows", Bias.BEARISH, None))
+
+    # Single-candle open/close observations. A full no-wick candle is a pattern in its own right.
+    observations = strong_candle_labels(current, wick_tolerance)
+    if STRONG_BULLISH in observations:
+        found.append((STRONG_BULLISH, Bias.BULLISH, None))
+    elif STRONG_BEARISH in observations:
+        found.append((STRONG_BEARISH, Bias.BEARISH, None))
 
     if not found:
-        return Evidence(["No special candle"], Bias.NEUTRAL)
+        # A plain candle (close above or below its open) is a normal candle, per the SMM candlestick list.
+        if _is_bullish(current):
+            found.append(("Normal Bullish", Bias.BULLISH, None))
+        elif _is_bearish(current):
+            found.append(("Normal Bearish", Bias.BEARISH, None))
+        else:
+            return Evidence(["No special candle", *observations], Bias.NEUTRAL)
 
     suffix = " in Support" if at_support else " at Resistance" if at_resistance else ""
-    labels = [f"{name}{suffix}" for name, _ in found]
-    directional = {bias for _, bias in found if bias is not Bias.NEUTRAL}
+    labels = [f"{name}{suffix}" for name, _, _ in found]
+    labels += [note for _, _, note in found if note]
+    if STRONG_BULLISH not in observations and STRONG_BEARISH not in observations:
+        labels += observations
+    directional = {bias for _, bias, _ in found if bias is not Bias.NEUTRAL}
     bias = directional.pop() if len(directional) == 1 else Bias.NEUTRAL
     return Evidence(labels, bias)

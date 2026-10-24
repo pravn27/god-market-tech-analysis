@@ -383,9 +383,9 @@ def price_action(
             found.append(("Up trend stopped", -1))
 
     if trend is TrendStructure.UP and current.close > previous.low:
-        found.append(("Continuation: Close > Prev. Candle Low", 1))
+        found.append(("Bullish trend continues: Close above Prev. Candle Low", 1))
     if trend is TrendStructure.DOWN and current.close < previous.high:
-        found.append(("Continuation: Close < Prev. Candle High", -1))
+        found.append(("Bearish trend continues: Close below Prev. Candle High", -1))
 
     if current.open > previous.high:
         found.append(("Gap up", 1))

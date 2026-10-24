@@ -261,7 +261,7 @@ def test_down_trend_stopped_needs_a_down_trend_but_reversal_does_not():
     current = candle(103, 115, 102, 114)
     result = price_action(previous, current, TrendStructure.UP)
     assert "Reversal Confirmation: Close > Prev. Candle High" in result.labels
-    assert "Continuation: Close > Prev. Candle Low" in result.labels
+    assert "Bullish trend continues: Close above Prev. Candle Low" in result.labels
     assert "Down trend stopped" not in result.labels
     assert result.bias is Bias.BULLISH
 
@@ -296,14 +296,14 @@ def test_inside_close_is_continuation_by_trend_not_by_colour():
     current = candle(99, 105, 100, 104)
     # The open (99) is below the previous close (110), so "Bearish Open" is a bearish term too.
     up = price_action(previous, current, TrendStructure.UP)
-    assert "Continuation: Close > Prev. Candle Low" in up.labels
-    assert up.label_biases["Continuation: Close > Prev. Candle Low"] is Bias.BULLISH
+    assert "Bullish trend continues: Close above Prev. Candle Low" in up.labels
+    assert up.label_biases["Bullish trend continues: Close above Prev. Candle Low"] is Bias.BULLISH
     assert up.label_biases["Bearish Open (below Prev. Close)"] is Bias.BEARISH
     assert up.bias is Bias.NEUTRAL
     # In a down trend the same close is below the previous High, so it is a bearish continuation.
     down = price_action(previous, current, TrendStructure.DOWN)
-    assert "Continuation: Close < Prev. Candle High" in down.labels
-    assert not any("Continuation: Close > Prev. Candle Low" in label for label in down.labels)
+    assert "Bearish trend continues: Close below Prev. Candle High" in down.labels
+    assert not any("Bullish trend continues: Close above Prev. Candle Low" in label for label in down.labels)
     assert down.bias is Bias.BEARISH
 
 
@@ -500,7 +500,7 @@ def test_price_action_gives_each_label_its_own_bias_in_a_mixed_cell():
     result = price_action(previous, current, TrendStructure.UP)
     assert result.bias is Bias.NEUTRAL
     assert result.label_biases["Confirmation: Close < Prev. Bullish Close"] is Bias.BEARISH
-    assert result.label_biases["Continuation: Close > Prev. Candle Low"] is Bias.BULLISH
+    assert result.label_biases["Bullish trend continues: Close above Prev. Candle Low"] is Bias.BULLISH
     assert result.label_biases["Bullish Open (above Prev. Close)"] is Bias.BULLISH
     assert set(result.label_biases) == set(result.labels)
 

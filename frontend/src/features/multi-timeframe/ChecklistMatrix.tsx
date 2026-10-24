@@ -94,6 +94,9 @@ function SectionHeading({
   )
 }
 
+// Rows whose tags carry their own direction (each label has its bias word).
+const BIAS_WORD_ROWS = new Set(['price_action', 'significant_candle'])
+
 function CellTags({ rowId, cell }: { rowId: string; cell: ChecklistCell }) {
   if (cell.bias === 'unavailable') {
     return <Tag variant="outlined" className="mtf-tag mtf-tag-unavailable">Unavailable</Tag>
@@ -102,7 +105,7 @@ function CellTags({ rowId, cell }: { rowId: string; cell: ChecklistCell }) {
     <>
       {cell.labels.map((label) => {
         const labelBias = cell.label_bias?.[label] ?? cell.bias
-        const text = rowId === 'price_action' ? `${label} - ${biasWord[labelBias]}` : label
+        const text = BIAS_WORD_ROWS.has(rowId) ? `${label} - ${biasWord[labelBias]}` : label
         return (
           <Tag key={label} color={labelColor(rowId, label, labelBias)} className="mtf-tag">{text}</Tag>
         )

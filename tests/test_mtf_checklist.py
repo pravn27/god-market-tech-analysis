@@ -630,12 +630,12 @@ def test_checklist_rows_now_automate_volume_and_chart_patterns_without_new_rows(
     rows = {row.id: row for row in CHECKLIST_ROWS}
     assert rows["weapon_volume"].automated is True
     assert rows["chart_pattern"].automated is True
-    assert len(CHECKLIST_ROWS) == 24
+    assert len(CHECKLIST_ROWS) == 25
 
 
-def test_section_two_rows_are_price_action_heikin_ashi_candlestick_then_special_candles():
+def test_section_two_rows_are_price_action_heikin_ashi_candlestick_significant_then_special_candles():
     row_ids = [row.id for row in CHECKLIST_ROWS if row.section == "2. Dow Theory Advanced + Price Action + Candlestick Pattern"]
-    assert row_ids == ["price_action", "heikin_ashi", "candlestick_pattern", "special_candles"]
+    assert row_ids == ["price_action", "heikin_ashi", "candlestick_pattern", "significant_candle", "special_candles"]
 
 
 def test_heikin_ashi_has_its_own_neutral_row_and_no_longer_sits_in_price_action():

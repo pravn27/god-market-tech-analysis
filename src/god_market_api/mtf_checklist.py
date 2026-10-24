@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Dict, List, Mapping, Optional, Sequence
 
 from .models import Bias, Candle, ChecklistCell
+from .significant_candles import significant_candle_evidence
 from .price_structure import (
     LocationKind,
     Pivot,
@@ -75,13 +76,13 @@ class ChecklistRow:
     automated: bool
 
 
-SECTION_CONTEXT = "1. Overall Context / View / Dow Theory"
+SECTION_CONTEXT = "1. Overall Context / Viewbuilding / Dow Theory"
 SECTION_PRICE_ACTION = "2. Dow Theory Advanced + Price Action + Candlestick Pattern"
 SECTION_INDICATORS = "3. Check Indicators"
 SECTION_SETUPS = "5. Concepts / Setups / Confirmation"
 
 CHECKLIST_ROWS: tuple[ChecklistRow, ...] = (
-    ChecklistRow("dow_trend", SECTION_CONTEXT, "Overall Context / View / Dow Theory", True),
+    ChecklistRow("dow_trend", SECTION_CONTEXT, "Dow Theory", True),
     ChecklistRow("dow_structure_v2", SECTION_CONTEXT, "Dow structure v2 (closed candles)", True),
     ChecklistRow("location", SECTION_CONTEXT, "Where do you stand in overall trend / context?", True),
     ChecklistRow("support_resistance", SECTION_CONTEXT, "Support / Resistance (horizontal swing levels)", True),
@@ -90,6 +91,7 @@ CHECKLIST_ROWS: tuple[ChecklistRow, ...] = (
     ChecklistRow("price_action", SECTION_PRICE_ACTION, "Current candle OPEN / CLOSE vs previous candle OHLC", True),
     ChecklistRow("heikin_ashi", SECTION_PRICE_ACTION, "Heikin-Ashi candle", True),
     ChecklistRow("candlestick_pattern", SECTION_PRICE_ACTION, "Candlestick pattern", True),
+    ChecklistRow("significant_candle", SECTION_PRICE_ACTION, "Significant candle", True),
     ChecklistRow("special_candles", SECTION_PRICE_ACTION, "Special candles near / at support & resistance", True),
     ChecklistRow("bollinger", SECTION_INDICATORS, "Bollinger Band", True),
     ChecklistRow("rsi", SECTION_INDICATORS, "RSI", True),
@@ -970,6 +972,37 @@ def evaluate_timeframe(
         t,
     )
     cells["chart_pattern"] = chart_pattern_cell(structure_candles, v2_highs, v2_lows, t)
+
+    if len(candles) >= 3:
+        action_cell = cells["price_action"]
+        action_labels = {
+            label: action_cell.label_bias.get(label, action_cell.bias)
+            for label in action_cell.labels
+        }
+        significant, significant_values = significant_candle_evidence(
+            candles,
+            pivot_highs,
+            pivot_lows,
+            t.pivot_window,
+            at_support=location.kind is LocationKind.NEAR_SUPPORT,
+            at_resistance=location.kind is LocationKind.NEAR_RESISTANCE,
+            pattern_labels=patterns.labels,
+            action_labels=action_labels,
+            bollinger_labels=cells["bollinger"].labels,
+            rsi_now=_at(s.rsi),
+            rsi_prev=_at(s.rsi, 1),
+            volume_ratio=cells["weapon_volume"].values.get("volume_ratio"),
+            volume_threshold=t.volume_double_ratio,
+        )
+        cells["significant_candle"] = ChecklistCell(
+            labels=significant.labels,
+            bias=significant.bias,
+            label_bias=significant.label_biases,
+            values=significant_values,
+            rule_ids=["significant-candle"],
+        )
+    else:
+        cells["significant_candle"] = _unavailable("Needs at least three candles.", "significant-candle")
 
     return TimeframeEvaluation(
         cells=cells, series=s, last_close=close, last_candle_at=candles[-1].timestamp

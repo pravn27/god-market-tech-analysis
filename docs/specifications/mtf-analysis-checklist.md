@@ -159,12 +159,35 @@ Compare the latest candle (C) with the previous candle (P). The trend (T) is the
 | C.close > P.high, T down | `Down trend stopped` | bullish |
 | C.close < P.low (any colour) | `Reversal Confirmation: Close < Prev. Candle Low` | bearish |
 | C.close < P.low, T up | `Up trend stopped` | bearish |
-| T up, C.close > P.low | `Continuation: Close > Prev. Candle Low` | bullish |
-| T down, C.close < P.high | `Continuation: Close < Prev. Candle High` | bearish |
+| T up, C.close > P.low | `Bullish trend continues: Close above Prev. Candle Low` | bullish |
+| T down, C.close < P.high | `Bearish trend continues: Close below Prev. Candle High` | bearish |
 
 Bias follows the directional labels: bullish terms only → bullish, bearish terms only → bearish, otherwise neutral. Each price-action label retains its own direction in `label_bias`, and the UI shows the bias word on each tag.
 
 Open observations are also listed when they apply: `Gap up` / `Bullish Open (above Prev. Close)` when the open is above the prior high / close; `Gap down` / `Bearish Open (below Prev. Close)` when below the prior low / close. Each is directional by its wording (bullish up, bearish down). Strong open/close observations (within 2% of the candle range) appear on the `candlestick_pattern` row, see below.
+
+### 2a. Significant candle (PAPA Seminar key points, sheet "Significant candles")
+
+Row `significant_candle`, placed after `candlestick_pattern`. A significant candle closes beyond the previous candle's High or Low, breaks a confirmed swing level, or gaps through one. The latest candle is checked against the 20 candles before it. Group A items only; Group B (3WS/3BC, counter attacks, sandwich, rounding, FBO/FBD, shakeouts, Ungli, news) is not yet evaluated.
+
+| Item | Label | Bias |
+| --- | --- | --- |
+| Latest high above a significant candle high | `Takes out high of significant candle X (n candles ago)` | bullish |
+| Latest low below a significant candle low | `Takes out low of significant candle X (n candles ago)` | bearish |
+| Latest close above a significant high / below a significant low | `BO of significant candle X` / `BD of significant candle X` | bullish / bearish |
+| Latest candle crosses a confirmed swing high / low | `Breaks out resistance X` / `Breaks down support X` | bullish / bearish |
+| Gap up through a swing high / gap down through a swing low | `Gap up through resistance X` / `Gap down through support X` | bullish / bearish |
+| Latest candle reaches back into an unfilled gap | `Fills exhaustion gap up/down` | neutral |
+| Newest significant candle (stop-loss reference) | `Stop reference: significant candle high X, low Y` | neutral |
+| Morning Star / Bullish Engulf / Hammer / Inverted Hammer at support | `<pattern> at major support` | bullish |
+| Evening Star / Bearish Engulf / Inverted Hammer / Hanging Man at resistance | `<pattern> at major resistance` | bearish |
+| Dow reversal or continuation confirmation on the price action row | `Dow reversal confirmation candle` / `Dow continuation confirmation candle` | as that label |
+| BKT / BKP / BB challenge (Bollinger labels) | `BKT candle (upper band failure)`, `BKP candle (lower band failure)`, `BB challenge candle (upper/lower)` | bearish / bullish |
+| RSI crosses 40 upward or 60 downward | `RSI brought above 40` / `RSI brought below 60` | bullish / bearish |
+| Volume at least double the average on a breakout or breakdown | `High volume breakout` / `High volume breakdown` | bullish / bearish |
+| Volume at least double the average at support or resistance | `High volume at major support` / `High volume at major resistance` | neutral |
+
+Not yet built from this sheet: double top / bottom confirmation (needs a neckline-cross check), Stochastic crossover and PCO/NCO in MACD/Stoch/EMA/RSI (existing labels describe states, not the cross), and the mother-candle BO/BD (needs a definition).
 
 ### 2. Candlestick pattern and special candles (SMM Summary; PAPA Candles Imp)
 

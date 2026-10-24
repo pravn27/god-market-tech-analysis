@@ -10,7 +10,7 @@ import type {
   MultiTimeframeAnalysis,
   TimeframeScreen,
 } from '../../api/client'
-import { labelColor, signalColor, timeframeLabel } from './mtfFormat'
+import { biasWord, labelColor, signalColor, timeframeLabel } from './mtfFormat'
 
 export type MatrixSelection =
   | { kind: 'cell'; row: MtfChecklistRow; timeframe: AnalysisTimeframe; layer: string; cell: ChecklistCell }
@@ -100,9 +100,13 @@ function CellTags({ rowId, cell }: { rowId: string; cell: ChecklistCell }) {
   }
   return (
     <>
-      {cell.labels.map((label) => (
-        <Tag key={label} color={labelColor(rowId, label, cell.label_bias?.[label] ?? cell.bias)} className="mtf-tag">{label}</Tag>
-      ))}
+      {cell.labels.map((label) => {
+        const labelBias = cell.label_bias?.[label] ?? cell.bias
+        const text = rowId === 'price_action' ? `${label} - ${biasWord[labelBias]}` : label
+        return (
+          <Tag key={label} color={labelColor(rowId, label, labelBias)} className="mtf-tag">{text}</Tag>
+        )
+      })}
     </>
   )
 }

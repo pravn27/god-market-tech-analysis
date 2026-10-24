@@ -16,6 +16,13 @@ export const biasColor: Record<Bias, string> = {
   unavailable: 'warning',
 }
 
+export const biasWord: Record<Bias, string> = {
+  bullish: 'Bullish',
+  bearish: 'Bearish',
+  neutral: 'Neutral',
+  unavailable: 'Unavailable',
+}
+
 // EMA price-relation labels such as "Price > 26" (green) and "Price < 26" (red), other labels keep the cell bias colour.
 const emaPriceRelation = /^Price ([<>]) \d+$/
 // Heikin-Ashi labels such as "Heikin-Ashi green, no wicks" (PAPA Concept 3). Both wicks = indecisive = yellow.

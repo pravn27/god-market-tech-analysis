@@ -346,49 +346,55 @@ def _marching(candles: Sequence[Candle], rising: bool) -> bool:
 def price_action(
     previous: Candle, current: Candle, trend: TrendStructure = TrendStructure.UNAVAILABLE
 ) -> Evidence:
-    """Current candle against the previous candle (PAPA Dow Theory Advanced; Concept image "Candle by Candle").
+    """Current candle against the previous candle (PAPA "Dow Theory Advanced", the Bullish/Bearish Reversal terms).
 
-    ``trend`` is section 1's Dow trend before this candle. Close above the previous High after a down trend is a
-    Reversal Confirmation; close above the previous Low while up is a Continuation. The mirror holds for bearish
-    moves. A close past the previous Close against its colour is a Confirmation. Bias follows the terms: a fact
-    with no term is neutral. Strong-candle (no wick) labels are single-candle evidence and live in
-    ``strong_candle_labels``.
+    ``trend`` is section 1's Dow trend before this candle. Each label carries its own direction (``label_biases``);
+    the cell bias is bullish if only bullish terms are present, bearish if only bearish, else neutral.
+    Bullish side (previous bearish, current bullish): Confirmation above the previous Close and Low, Continuation
+    above the previous High. Bearish side mirrors it (previous bullish, current bearish). A close beyond the previous
+    High or Low is a Reversal Confirmation, whatever the colour; it also tags "Down trend stopped" (bullish) or
+    "Up trend stopped" (bearish) when the trend before was the opposite one. In a trend, a close beyond the previous
+    Low (up) or High (down) is a Continuation. Strong-candle (no wick) labels live in ``strong_candle_labels``.
     """
-    # (label, direction): +1 bullish term, -1 bearish term, 0 fact without a term.
+    # (label, direction): +1 bullish term, -1 bearish term.
     found: List[tuple[str, int]] = []
-    if _is_bearish(previous) and _is_bullish(current) and current.close > previous.close:
-        found.append(("Confirmation: Close > Prev. Bearish Close", 1))
-    if _is_bullish(previous) and _is_bearish(current) and current.close < previous.close:
-        found.append(("Confirmation: Close < Prev. Bullish Close", -1))
+    if _is_bearish(previous) and _is_bullish(current):
+        if current.close > previous.close:
+            found.append(("Confirmation: Close > Prev. Bearish Close", 1))
+        if current.close > previous.low:
+            found.append(("Confirmation: Close > Prev. Bearish Low", 1))
+        if current.close > previous.high:
+            found.append(("Continuation: Close > Prev. Bearish High", 1))
+    if _is_bullish(previous) and _is_bearish(current):
+        if current.close < previous.close:
+            found.append(("Confirmation: Close < Prev. Bullish Close", -1))
+        if current.close < previous.high:
+            found.append(("Confirmation: Close < Prev. Bullish High", -1))
+        if current.close < previous.low:
+            found.append(("Continuation: Close < Prev. Bullish Low", -1))
 
     if current.close > previous.high:
+        found.append(("Reversal Confirmation: Close > Prev. Candle High", 1))
         if trend is TrendStructure.DOWN:
-            found.append(("Reversal Confirmation: Close > Prev. Candle High", 1))
-        elif trend is TrendStructure.UP:
-            found.append(("Continuation: Close > Prev. Candle High", 1))
-        else:
-            found.append(("Close > Prev. Candle High", 0))
+            found.append(("Down trend stopped", 1))
     elif current.close < previous.low:
+        found.append(("Reversal Confirmation: Close < Prev. Candle Low", -1))
         if trend is TrendStructure.UP:
-            found.append(("Reversal Confirmation: Close < Prev. Candle Low", -1))
-        elif trend is TrendStructure.DOWN:
-            found.append(("Continuation: Close < Prev. Candle Low", -1))
-        else:
-            found.append(("Close < Prev. Candle Low", 0))
-    else:
-        if current.close > previous.low and trend is TrendStructure.UP:
-            found.append(("Continuation: Close > Prev. Candle Low", 1))
-        if current.close < previous.high and trend is TrendStructure.DOWN:
-            found.append(("Continuation: Close < Prev. Candle High", -1))
+            found.append(("Up trend stopped", -1))
+
+    if trend is TrendStructure.UP and current.close > previous.low:
+        found.append(("Continuation: Close > Prev. Candle Low", 1))
+    if trend is TrendStructure.DOWN and current.close < previous.high:
+        found.append(("Continuation: Close < Prev. Candle High", -1))
 
     if current.open > previous.high:
-        found.append(("Gap up", 0))
+        found.append(("Gap up", 1))
     elif current.open > previous.close:
-        found.append(("Bullish Open (above Prev. Close)", 0))
+        found.append(("Bullish Open (above Prev. Close)", 1))
     elif current.open < previous.low:
-        found.append(("Gap down", 0))
+        found.append(("Gap down", -1))
     elif current.open < previous.close:
-        found.append(("Bearish Open (below Prev. Close)", 0))
+        found.append(("Bearish Open (below Prev. Close)", -1))
 
     labels = [label for label, _ in found]
     up = any(direction == 1 for _, direction in found)

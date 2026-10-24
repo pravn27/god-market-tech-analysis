@@ -145,24 +145,26 @@ Fewer than two swing highs and two swing lows → unavailable.
 
 ### 2. Advanced Dow + price action (PAPA Dow Theory Advanced; Candles Imp)
 
-Compare the latest candle (C) with the previous candle (P). The trend (T) is the section 1 Dow trend before C. Labels follow the PAPA Concept image ("Candle by Candle"), using P's High and Low (not its open):
+Compare the latest candle (C) with the previous candle (P). The trend (T) is the section 1 Dow trend before C. Terms follow the PAPA "Dow Theory Advanced" sheet (Bullish and Bearish Reversals, Trend Continuations). The row shows each label with its bias word (for example `Confirmation - Bullish`).
 
 | Condition | Label | Bias |
 | --- | --- | --- |
 | P bearish, C bullish, C.close > P.close | `Confirmation: Close > Prev. Bearish Close` | bullish |
+| P bearish, C bullish, C.close > P.low | `Confirmation: Close > Prev. Bearish Low` | bullish |
+| P bearish, C bullish, C.close > P.high | `Continuation: Close > Prev. Bearish High` | bullish |
 | P bullish, C bearish, C.close < P.close | `Confirmation: Close < Prev. Bullish Close` | bearish |
-| C.close > P.high, T down | `Reversal Confirmation: Close > Prev. Candle High` | bullish |
-| C.close > P.high, T up | `Continuation: Close > Prev. Candle High` | bullish |
-| C.close > P.high, T sideways or unavailable | `Close > Prev. Candle High` | neutral |
-| C.close < P.low, T up | `Reversal Confirmation: Close < Prev. Candle Low` | bearish |
-| C.close < P.low, T down | `Continuation: Close < Prev. Candle Low` | bearish |
-| C.close < P.low, T sideways or unavailable | `Close < Prev. Candle Low` | neutral |
-| P.low < C.close <= P.high, T up | `Continuation: Close > Prev. Candle Low` | bullish |
-| P.low <= C.close < P.high, T down | `Continuation: Close < Prev. Candle High` | bearish |
+| P bullish, C bearish, C.close < P.high | `Confirmation: Close < Prev. Bullish High` | bearish |
+| P bullish, C bearish, C.close < P.low | `Continuation: Close < Prev. Bullish Low` | bearish |
+| C.close > P.high (any colour) | `Reversal Confirmation: Close > Prev. Candle High` | bullish |
+| C.close > P.high, T down | `Down trend stopped` | bullish |
+| C.close < P.low (any colour) | `Reversal Confirmation: Close < Prev. Candle Low` | bearish |
+| C.close < P.low, T up | `Up trend stopped` | bearish |
+| T up, C.close > P.low | `Continuation: Close > Prev. Candle Low` | bullish |
+| T down, C.close < P.high | `Continuation: Close < Prev. Candle High` | bearish |
 
-Bias follows the directional labels: bullish terms only → bullish, bearish terms only → bearish, otherwise neutral. Each price-action label retains its own direction in `label_bias`; open/gap observations are neutral facts. The Reversal and Continuation terms are the mirror of each other (the bearish "below Low, in a down trend" case is treated as continuation by symmetry with the bullish "above High, in an up trend" case; PAPA does not state it).
+Bias follows the directional labels: bullish terms only → bullish, bearish terms only → bearish, otherwise neutral. Each price-action label retains its own direction in `label_bias`, and the UI shows the bias word on each tag.
 
-Open observations are also listed when they apply: `Gap up` / `Bullish Open (above Prev. Close)` when the open is above the prior high / close; `Gap down` / `Bearish Open (below Prev. Close)` when below the prior low / close. Strong open/close observations (within 2% of the candle range) appear on the `candlestick_pattern` row, see below.
+Open observations are also listed when they apply: `Gap up` / `Bullish Open (above Prev. Close)` when the open is above the prior high / close; `Gap down` / `Bearish Open (below Prev. Close)` when below the prior low / close. Each is directional by its wording (bullish up, bearish down). Strong open/close observations (within 2% of the candle range) appear on the `candlestick_pattern` row, see below.
 
 ### 2. Candlestick pattern and special candles (SMM Summary; PAPA Candles Imp)
 

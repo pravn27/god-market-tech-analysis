@@ -328,7 +328,7 @@ def test_piercing_patterns():
     bullish = [candle(110, 111, 99, 100, 0), candle(98, 107, 97, 106, 1)]
     assert "Bullish Piercing" in detect_candle_patterns(bullish, False, False).labels
     bearish = [candle(100, 111, 99, 110, 0), candle(112, 113, 103, 104, 1)]
-    assert "Bearish Piercing" in detect_candle_patterns(bearish, False, False).labels
+    assert "Bearish Piercing (Dark Cloud Cover)" in detect_candle_patterns(bearish, False, False).labels
 
 
 def test_morning_and_evening_star():
@@ -336,6 +336,24 @@ def test_morning_and_evening_star():
     assert "Morning Star" in detect_candle_patterns(morning, False, False).labels
     evening = [candle(100, 116, 99, 115, 0), candle(116, 118, 114, 117, 1), candle(115, 116, 101, 102, 2)]
     assert "Evening Star" in detect_candle_patterns(evening, False, False).labels
+
+
+def test_morning_star_needs_the_gap_and_low_rules_from_smm():
+    # SMM Concepts 1, slide 33: the middle candle opens with a gap-down and its low is below the first low.
+    middle_opens_above_first_close = [
+        candle(120, 121, 105, 106, 0), candle(106.5, 107, 104, 106, 1), candle(107, 119, 106, 118, 2),
+    ]
+    assert "Morning Star" not in detect_candle_patterns(middle_opens_above_first_close, False, False).labels
+    # The third candle must open with a gap-up above the middle candle.
+    no_gap_up_on_third = [
+        candle(120, 121, 105, 106, 0), candle(104, 106, 102, 105, 1), candle(104.5, 119, 103, 118, 2),
+    ]
+    assert "Morning Star" not in detect_candle_patterns(no_gap_up_on_third, False, False).labels
+    # The middle candle's low must be lower than the first candle's low.
+    middle_low_not_below_first = [
+        candle(120, 121, 105, 106, 0), candle(104, 106, 105.5, 105, 1), candle(106, 119, 105, 118, 2),
+    ]
+    assert "Morning Star" not in detect_candle_patterns(middle_low_not_below_first, False, False).labels
 
 
 def test_plain_candles_are_normal_bullish_or_bearish():
@@ -367,11 +385,48 @@ def test_inverted_hammer_at_bottom_is_not_significantly_bearish():
     assert "Inverted Hammer in Support" in result.labels
     assert "Not significantly bearish at bottom" in result.labels
     assert result.bias is Bias.NEUTRAL
-    assert detect_candle_patterns([inverted], False, False).bias is Bias.BEARISH
+    at_top = detect_candle_patterns([inverted], at_support=False, at_resistance=True)
+    assert at_top.bias is Bias.BEARISH
+    # PAPA: ignored in the middle of a trend or range.
+    mid_trend = detect_candle_patterns([inverted], at_support=False, at_resistance=False)
+    assert "Inverted Hammer" in mid_trend.labels
+    assert "Ignore mid-trend" in mid_trend.labels
+    assert mid_trend.bias is Bias.NEUTRAL
+
+
+def test_hammer_in_the_middle_of_a_trend_is_ignored():
+    hammer = candle(100, 101, 90, 100.8)
+    mid_trend = detect_candle_patterns([hammer], at_support=False, at_resistance=False)
+    assert "Hammer" in mid_trend.labels
+    assert "Ignore mid-trend" in mid_trend.labels
+    assert mid_trend.bias is Bias.NEUTRAL
+    falling = [candle(100 - 2 * i, 101 - 2 * i, 98 - 2 * i, 99 - 2 * i, i) for i in range(6)]
+    at_bottom = detect_candle_patterns([*falling, hammer], at_support=False, at_resistance=False)
+    assert at_bottom.bias is Bias.BULLISH
+
+
+def test_high_wave_is_neutral_with_big_wicks_on_both_sides():
+    high_wave = candle(100, 110, 90, 103)
+    result = detect_candle_patterns([high_wave], False, False)
+    assert result.labels == ["High Wave"]
+    assert result.bias is Bias.NEUTRAL
+
+
+def test_bullish_and_bearish_harami_are_neutral_with_location_note():
+    bullish_harami = [candle(110, 111, 99, 100, 0), candle(101, 106, 100, 105, 1)]
+    result = detect_candle_patterns(bullish_harami, at_support=True, at_resistance=False)
+    assert "Bullish Harami in Support" in result.labels
+    assert "Significant bullish at bottom of trend" in result.labels
+    assert result.bias is Bias.NEUTRAL
+    bearish_harami = [candle(100, 111, 99, 110, 0), candle(109, 109.5, 104, 105, 1)]
+    result = detect_candle_patterns(bearish_harami, at_support=False, at_resistance=True)
+    assert "Bearish Harami at Resistance" in result.labels
+    assert "Significant bearish at top of trend" in result.labels
+    assert result.bias is Bias.NEUTRAL
 
 
 def test_morning_star_at_top_is_caution_for_bulls():
-    morning = [candle(110, 111, 95, 96, 0), candle(96.5, 97, 96, 96.8, 1), candle(97, 106, 96.5, 105, 2)]
+    morning = [candle(110, 111, 95, 96, 0), candle(95.5, 96, 94, 95.8, 1), candle(97, 106, 96.5, 105, 2)]
     result = detect_candle_patterns(morning, at_support=False, at_resistance=True)
     assert "Morning Star at Resistance" in result.labels
     assert "Caution for bulls at top" in result.labels
@@ -379,7 +434,7 @@ def test_morning_star_at_top_is_caution_for_bulls():
 
 
 def test_evening_star_at_bottom_is_caution_for_bears():
-    evening = [candle(90, 106, 89, 105, 0), candle(105.5, 106, 105, 105.2, 1), candle(104, 105, 92, 93, 2)]
+    evening = [candle(90, 106, 89, 105, 0), candle(105.5, 107, 105, 105.2, 1), candle(104, 105, 92, 93, 2)]
     result = detect_candle_patterns(evening, at_support=True, at_resistance=False)
     assert "Evening Star in Support" in result.labels
     assert "Caution for bears at bottom" in result.labels

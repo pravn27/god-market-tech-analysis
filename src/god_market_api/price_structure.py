@@ -441,6 +441,9 @@ def _single_candle_pattern(c: Candle) -> Optional[str]:
         return "inverted_hammer"
     if body <= 0.1 * candle_range:
         return "doji"
+    # PAPA: High Wave has a small body with big wicks on both sides; Spinning Top has smaller wicks.
+    if body <= 0.3 * candle_range and upper >= 0.35 * candle_range and lower >= 0.35 * candle_range:
+        return "high_wave"
     if body <= 0.3 * candle_range and upper >= 0.2 * candle_range and lower >= 0.2 * candle_range:
         return "spinning_top"
     return None
@@ -466,15 +469,25 @@ def detect_candle_patterns(
     current = candles[-1]
 
     shape = _single_candle_pattern(current)
+    # PAPA: Hammer and Inverted Hammer matter only at the end of a trend; ignored in the middle of a trend or range.
     if shape == "hammer":
-        found.append(("Hanging Man", Bias.BEARISH, None) if context == "top" else ("Hammer", Bias.BULLISH, None))
+        if context == "top":
+            found.append(("Hanging Man", Bias.BEARISH, None))
+        elif context is None:
+            found.append(("Hammer", Bias.NEUTRAL, "Ignore mid-trend"))
+        else:
+            found.append(("Hammer", Bias.BULLISH, None))
     elif shape == "inverted_hammer":
         if context == "bottom":
             found.append(("Inverted Hammer", Bias.NEUTRAL, "Not significantly bearish at bottom"))
+        elif context is None:
+            found.append(("Inverted Hammer", Bias.NEUTRAL, "Ignore mid-trend"))
         else:
             found.append(("Inverted Hammer", Bias.BEARISH, None))
     elif shape == "doji":
         found.append(("Doji", Bias.NEUTRAL, None))
+    elif shape == "high_wave":
+        found.append(("High Wave", Bias.NEUTRAL, None))
     elif shape == "spinning_top":
         found.append(("Spinning Top", Bias.NEUTRAL, None))
 
@@ -518,7 +531,9 @@ def detect_candle_patterns(
             and current.open > previous.close
             and previous.open < current.close < previous_mid
         ):
-            found.append(("Bearish Piercing", Bias.BEARISH, None))
+            # PAPA names this same candle Dark Cloud Cover (gap-up opening bearish candle; significant at top of trend).
+            found.append(("Bearish Piercing (Dark Cloud Cover)", Bias.BEARISH, None))
+        # PAPA classes Harami as a neutral pattern. The note says where it is significant; the bias stays neutral.
         if (
             _is_bearish(previous)
             and _is_bullish(current)
@@ -526,27 +541,41 @@ def detect_candle_patterns(
             and current.close <= previous.open
             and current_body < previous_body
         ):
-            found.append(("Bullish Harami", Bias.BULLISH, None))
+            note = "Significant bullish at bottom of trend" if context == "bottom" else "Significant only at bottom of trend"
+            found.append(("Bullish Harami", Bias.NEUTRAL, note))
+        if (
+            _is_bullish(previous)
+            and _is_bearish(current)
+            and current.open <= previous.close
+            and current.close >= previous.open
+            and current_body < previous_body
+        ):
+            note = "Significant bearish at top of trend" if context == "top" else "Significant only at top of trend"
+            found.append(("Bearish Harami", Bias.NEUTRAL, note))
         if current.high <= previous.high and current.low >= previous.low:
             found.append(("Mother candle", Bias.NEUTRAL, None))
 
     if len(candles) >= 3:
         first, middle = candles[-3], candles[-2]
-        first_body = abs(first.close - first.open)
-        first_range = first.high - first.low
-        middle_body = abs(middle.close - middle.open)
         first_mid = (first.open + first.close) / 2
-        if first_range > 0 and first_body >= 0.5 * first_range and middle_body <= 0.3 * first_body:
-            if _is_bearish(first) and _is_bullish(current) and current.close > first_mid:
-                if context == "top":
-                    found.append(("Morning Star", Bias.NEUTRAL, "Caution for bulls at top"))
-                else:
-                    found.append(("Morning Star", Bias.BULLISH, None))
-            elif _is_bullish(first) and _is_bearish(current) and current.close < first_mid:
-                if context == "bottom":
-                    found.append(("Evening Star", Bias.NEUTRAL, "Caution for bears at bottom"))
-                else:
-                    found.append(("Evening Star", Bias.BEARISH, None))
+        # SMM Concepts 1, slide 33. Morning Star: a bearish first candle, a middle candle that opens with a
+        # gap-down and whose low is below the first low, then a bullish third candle that opens with a gap-up
+        # and closes above the first candle's median. Evening Star is the mirror image. The middle candle is
+        # "typically" neutral and its colour does not matter, so only the gaps and extremes are checked.
+        middle_gaps_down = middle.open < min(first.open, first.close) and middle.low < first.low
+        middle_gaps_up = middle.open > max(first.open, first.close) and middle.high > first.high
+        current_gaps_up = current.open > max(middle.open, middle.close)
+        current_gaps_down = current.open < min(middle.open, middle.close)
+        if _is_bearish(first) and middle_gaps_down and _is_bullish(current) and current_gaps_up and current.close > first_mid:
+            if context == "top":
+                found.append(("Morning Star", Bias.NEUTRAL, "Caution for bulls at top"))
+            else:
+                found.append(("Morning Star", Bias.BULLISH, None))
+        elif _is_bullish(first) and middle_gaps_up and _is_bearish(current) and current_gaps_down and current.close < first_mid:
+            if context == "bottom":
+                found.append(("Evening Star", Bias.NEUTRAL, "Caution for bears at bottom"))
+            else:
+                found.append(("Evening Star", Bias.BEARISH, None))
 
         last_three = candles[-3:]
         if all(_is_bullish(c) for c in last_three) and _marching(last_three, rising=True):

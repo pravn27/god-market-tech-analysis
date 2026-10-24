@@ -20,7 +20,7 @@ export default function App() {
   return (
     <Layout className="app-shell">
       <Header className="app-header">
-        <button className="brand" type="button" onClick={() => navigate('/global-market')} aria-label="God Market home">
+        <button className="brand" type="button" onClick={() => navigate('/multi-timeframe')} aria-label="God Market home">
           <LineChartOutlined className="brand-icon" aria-hidden="true" />
           <Typography.Text strong className="brand-text">
             God Market <span className="brand-accent">TA</span>
@@ -55,7 +55,7 @@ export default function App() {
         <Routes>
           <Route path="/global-market" element={<GlobalMarketPage />} />
           <Route path="/multi-timeframe" element={<MultiTimeframePage />} />
-          <Route path="*" element={<Navigate to="/global-market" replace />} />
+          <Route path="*" element={<Navigate to="/multi-timeframe" replace />} />
         </Routes>
       </Content>
       <Footer className="app-footer">PS ASTA Setup · local decision support</Footer>

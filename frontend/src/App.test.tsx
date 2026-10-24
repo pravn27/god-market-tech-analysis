@@ -31,13 +31,21 @@ beforeEach(() => {
   useUiStore.setState({ themeMode: 'light' })
 })
 
-test('renders the Global Market route shell', () => {
+test('lands on the Multi-Timeframe page by default', () => {
+  window.history.pushState({}, '', '/')
+  renderApp()
+
+  expect(screen.getByRole('heading', { name: 'Multi-Timeframe Analysis' })).toBeInTheDocument()
+  expect(screen.getByRole('navigation', { name: 'Primary' })).toHaveTextContent('Global Market')
+  expect(screen.getByRole('navigation', { name: 'Primary' })).toHaveTextContent('Multi-Timeframe')
+})
+
+test('renders the Global Market route shell when opened directly', () => {
+  window.history.pushState({}, '', '/global-market')
   renderApp()
 
   expect(screen.getByRole('heading', { name: 'Global Markets' })).toBeInTheDocument()
   expect(screen.getByText(/manual analysis/i)).toBeInTheDocument()
-  expect(screen.getByRole('navigation', { name: 'Primary' })).toHaveTextContent('Global Market')
-  expect(screen.getByRole('navigation', { name: 'Primary' })).toHaveTextContent('Multi-Timeframe')
 })
 
 test('navigates to the Multi-Timeframe page from the header', () => {

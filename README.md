@@ -37,11 +37,23 @@ uv sync --group dev
 Create `.env.local` once by copying `.env.example`, then set
 `TRADINGVIEW_DESKTOP_BRIDGE_CLI` to the local bridge's `src/cli/index.js`
 path. This path is machine-specific and `.env.local` is ignored by Git. On
-each machine, use its own local path. On macOS, start the local stack with:
+each machine, use its own local path.
+
+On macOS, start the whole app (API and frontend) with one command:
 
 ```bash
-./scripts/start-local.sh
+./scripts/start-app.sh
 ```
+
+It runs the TradingView bridge preflight, starts the API on
+`http://127.0.0.1:8000` and the frontend on `http://localhost:5173`, opens the
+frontend in the browser, and prefixes each process's output with `[api]` or
+`[web]`. Press Ctrl+C to stop both. Use `./scripts/start-app.sh --skip-tv` to
+skip the TradingView preflight. The first run needs `cd frontend && npm install`.
+The script refuses to start if port 8000 or 5173 is already in use.
+
+To run only the TradingView preflight and API, use `./scripts/start-local.sh`
+(or `./scripts/start-local.sh --preflight-only` to run just the checks).
 
 The helper reuses TradingView Desktop when its bridge is already available;
 otherwise it gracefully quits and relaunches the app with the required CDP

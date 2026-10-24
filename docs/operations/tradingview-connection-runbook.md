@@ -36,11 +36,17 @@ TRADINGVIEW_DESKTOP_BRIDGE_CLI=/path/to/tradingview-mcp/src/cli/index.js
 TRADINGVIEW_DESKTOP_BRIDGE_NODE=/path/to/node
 ```
 
-On macOS, start the backend and prepare TradingView Desktop with:
+On macOS, start the backend, the frontend, and prepare TradingView Desktop with
+one command:
 
 ```bash
-./scripts/start-local.sh
+./scripts/start-app.sh
 ```
+
+The script runs `./scripts/start-local.sh --preflight-only` first, then starts
+the API and the frontend. Use `./scripts/start-app.sh --skip-tv` to skip the
+TradingView preflight. To run only the TradingView preflight and API, use
+`./scripts/start-local.sh`.
 
 The helper reuses a TradingView CDP session on port 9222 when available. If
 TradingView is open without CDP, it requests a graceful quit and relaunches
@@ -53,9 +59,10 @@ warning because Official MCP remains the primary source, but Desktop fallback
 will be rejected until `PS_Global_Indices` is selected manually. The backend
 invokes only the read-only `watchlist get` command.
 
-The frontend remains separate. Start it in another terminal with
-`cd frontend && npm run dev`. To stop the backend, press Ctrl+C in the
-terminal running `start-local.sh`.
+`start-app.sh` starts the frontend too, so one terminal runs both. To stop
+both, press Ctrl+C in that terminal. If you started the API with
+`start-local.sh`, the frontend still runs separately with
+`cd frontend && npm run dev`, and Ctrl+C stops the API.
 
 When Official MCP cannot provide evidence (such as an initialization error,
 timeout, upstream handshake failure, or rate limit), the Global Market

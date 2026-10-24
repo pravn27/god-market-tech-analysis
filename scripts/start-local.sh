@@ -6,6 +6,16 @@ ENV_FILE="$ROOT_DIR/.env.local"
 CDP_PORT=9222
 CDP_URL="http://127.0.0.1:${CDP_PORT}/json/version"
 
+# --preflight-only runs the TradingView bridge checks and exits without starting the API.
+# scripts/start-app.sh uses it so the API and frontend can be started by a single command.
+PREFLIGHT_ONLY=false
+for arg in "$@"; do
+  case "$arg" in
+    --preflight-only) PREFLIGHT_ONLY=true ;;
+    *) echo "Unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "This startup helper currently supports macOS only." >&2
   exit 1
@@ -171,6 +181,11 @@ elif [[ "$ACTUAL_SYMBOLS" == "$EXPECTED_MTF" ]]; then
 else
   echo "WARNING: The active TradingView watchlist is neither PS_Global_Indices nor PS_Commodity." >&2
   echo "The API can still start and use Official MCP, but Desktop fallbacks will be rejected until you select one of them in TradingView." >&2
+fi
+
+if [[ "$PREFLIGHT_ONLY" == true ]]; then
+  echo "TradingView preflight finished."
+  exit 0
 fi
 
 echo "Starting the local API at http://127.0.0.1:8000 (Ctrl+C to stop)."

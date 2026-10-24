@@ -5,7 +5,7 @@ Wording follows the PAPA/SMM course notes and the user's multi-timeframe workshe
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence
 
 from .models import Bias, Candle
 
@@ -128,6 +128,8 @@ class PriceLocation:
 class Evidence:
     labels: List[str] = field(default_factory=list)
     bias: Bias = Bias.NEUTRAL
+    # Optional per-label direction; labels without an entry take the overall bias.
+    label_biases: Dict[str, Bias] = field(default_factory=dict)
 
 
 def find_pivots(
@@ -341,45 +343,63 @@ def _marching(candles: Sequence[Candle], rising: bool) -> bool:
     return True
 
 
-def price_action(previous: Candle, current: Candle) -> Evidence:
-    """Compare the current candle's open/close with the previous candle (PAPA Advanced Dow).
+def price_action(
+    previous: Candle, current: Candle, trend: TrendStructure = TrendStructure.UNAVAILABLE
+) -> Evidence:
+    """Current candle against the previous candle (PAPA Dow Theory Advanced; Concept image "Candle by Candle").
 
-    Strong-candle (no wick) labels are single-candle evidence and live in ``strong_candle_labels``.
+    ``trend`` is section 1's Dow trend before this candle. Close above the previous High after a down trend is a
+    Reversal Confirmation; close above the previous Low while up is a Continuation. The mirror holds for bearish
+    moves. A close past the previous Close against its colour is a Confirmation. Bias follows the terms: a fact
+    with no term is neutral. Strong-candle (no wick) labels are single-candle evidence and live in
+    ``strong_candle_labels``.
     """
-    labels: List[str] = []
-    if _is_bearish(previous) and current.close > previous.close:
-        labels.append("Close > Prev. Bearish Close")
-        if current.close > previous.open:
-            labels.append("Close > Prev. Bearish Open")
-    if _is_bullish(previous) and current.close < previous.close:
-        labels.append("Close < Prev. Bullish Close")
-        if current.close < previous.open:
-            labels.append("Close < Prev. Bullish Open")
+    # (label, direction): +1 bullish term, -1 bearish term, 0 fact without a term.
+    found: List[tuple[str, int]] = []
+    if _is_bearish(previous) and _is_bullish(current) and current.close > previous.close:
+        found.append(("Confirmation: Close > Prev. Bearish Close", 1))
+    if _is_bullish(previous) and _is_bearish(current) and current.close < previous.close:
+        found.append(("Confirmation: Close < Prev. Bullish Close", -1))
+
     if current.close > previous.high:
-        labels.append("Close > Prev. Candle High")
-    if current.close < previous.low:
-        labels.append("Close < Prev. Candle Low")
+        if trend is TrendStructure.DOWN:
+            found.append(("Reversal Confirmation: Close > Prev. Candle High", 1))
+        elif trend is TrendStructure.UP:
+            found.append(("Continuation: Close > Prev. Candle High", 1))
+        else:
+            found.append(("Close > Prev. Candle High", 0))
+    elif current.close < previous.low:
+        if trend is TrendStructure.UP:
+            found.append(("Reversal Confirmation: Close < Prev. Candle Low", -1))
+        elif trend is TrendStructure.DOWN:
+            found.append(("Continuation: Close < Prev. Candle Low", -1))
+        else:
+            found.append(("Close < Prev. Candle Low", 0))
+    else:
+        if current.close > previous.low and trend is TrendStructure.UP:
+            found.append(("Continuation: Close > Prev. Candle Low", 1))
+        if current.close < previous.high and trend is TrendStructure.DOWN:
+            found.append(("Continuation: Close < Prev. Candle High", -1))
 
     if current.open > previous.high:
-        labels.append("Gap up")
+        found.append(("Gap up", 0))
     elif current.open > previous.close:
-        labels.append("Bullish Open (above Prev. Close)")
+        found.append(("Bullish Open (above Prev. Close)", 0))
     elif current.open < previous.low:
-        labels.append("Gap down")
+        found.append(("Gap down", 0))
     elif current.open < previous.close:
-        labels.append("Bearish Open (below Prev. Close)")
+        found.append(("Bearish Open (below Prev. Close)", 0))
 
-    if current.close > previous.high:
-        bias = Bias.BULLISH
-    elif current.close < previous.low:
-        bias = Bias.BEARISH
-    elif current.close > previous.close:
-        bias = Bias.BULLISH
-    elif current.close < previous.close:
-        bias = Bias.BEARISH
-    else:
-        bias = Bias.NEUTRAL
-    return Evidence(labels or ["Close = Prev. Close"], bias)
+    labels = [label for label, _ in found]
+    up = any(direction == 1 for _, direction in found)
+    down = any(direction == -1 for _, direction in found)
+    bias = Bias.BULLISH if up and not down else Bias.BEARISH if down and not up else Bias.NEUTRAL
+    label_biases = {label: _direction_bias(direction) for label, direction in found}
+    return Evidence(labels or ["Close = Prev. Close"], bias, label_biases)
+
+
+def _direction_bias(direction: int) -> Bias:
+    return Bias.BULLISH if direction > 0 else Bias.BEARISH if direction < 0 else Bias.NEUTRAL
 
 
 def _prior_direction(candles: Sequence[Candle], lookback: int = 5) -> Optional[str]:

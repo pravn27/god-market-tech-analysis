@@ -101,7 +101,7 @@ function CellTags({ rowId, cell }: { rowId: string; cell: ChecklistCell }) {
   return (
     <>
       {cell.labels.map((label) => (
-        <Tag key={label} color={labelColor(rowId, label, cell.bias)} className="mtf-tag">{label}</Tag>
+        <Tag key={label} color={labelColor(rowId, label, cell.label_bias?.[label] ?? cell.bias)} className="mtf-tag">{label}</Tag>
       ))}
     </>
   )

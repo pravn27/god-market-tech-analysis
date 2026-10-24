@@ -907,10 +907,11 @@ def evaluate_timeframe(
         )
 
     if len(candles) >= 2:
-        action = price_action(candles[-2], candles[-1])
+        action = price_action(candles[-2], candles[-1], trend.structure)
         cells["price_action"] = ChecklistCell(
             labels=action.labels,
             bias=action.bias,
+            label_bias=action.label_biases,
             values={
                 "open": candles[-1].open,
                 "high": candles[-1].high,

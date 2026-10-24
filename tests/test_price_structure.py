@@ -241,25 +241,64 @@ def test_locate_price_unavailable_without_pivots_or_atr():
 # Advanced Dow + price action
 
 
-def test_bullish_reversal_confirmation_after_bearish_candle():
+def test_bullish_reversal_confirmation_after_down_trend():
     previous = candle(110, 112, 100, 102)
     current = candle(103, 115, 102, 114)
-    result = price_action(previous, current)
-    assert "Close > Prev. Bearish Close" in result.labels
-    assert "Close > Prev. Bearish Open" in result.labels
-    assert "Close > Prev. Candle High" in result.labels
+    result = price_action(previous, current, TrendStructure.DOWN)
+    assert "Confirmation: Close > Prev. Bearish Close" in result.labels
+    assert "Reversal Confirmation: Close > Prev. Candle High" in result.labels
     assert "Bullish Open (above Prev. Close)" in result.labels
     assert result.bias is Bias.BULLISH
 
 
-def test_bearish_reversal_confirmation_after_bullish_candle():
+def test_bullish_close_above_high_in_up_trend_is_continuation():
+    previous = candle(110, 112, 100, 102)
+    current = candle(103, 115, 102, 114)
+    result = price_action(previous, current, TrendStructure.UP)
+    assert "Continuation: Close > Prev. Candle High" in result.labels
+    assert not any(label.startswith("Reversal") for label in result.labels)
+    assert result.bias is Bias.BULLISH
+
+
+def test_inside_close_is_continuation_by_trend_not_by_colour():
+    # Close 104 is inside the previous candle (low 98, high 112) and above the previous low; the current candle is bullish.
+    previous = candle(100, 112, 98, 110)
+    current = candle(99, 105, 100, 104)
+    up = price_action(previous, current, TrendStructure.UP)
+    assert "Continuation: Close > Prev. Candle Low" in up.labels
+    assert up.bias is Bias.BULLISH
+    # In a down trend the same close is below the previous High, so it is a bearish continuation.
+    down = price_action(previous, current, TrendStructure.DOWN)
+    assert "Continuation: Close < Prev. Candle High" in down.labels
+    assert not any("Continuation: Close > Prev. Candle Low" in label for label in down.labels)
+    assert down.bias is Bias.BEARISH
+
+
+def test_bearish_reversal_confirmation_after_up_trend():
+    previous = candle(100, 112, 98, 110)
+    current = candle(109, 110, 95, 96)
+    result = price_action(previous, current, TrendStructure.UP)
+    assert "Confirmation: Close < Prev. Bullish Close" in result.labels
+    assert "Reversal Confirmation: Close < Prev. Candle Low" in result.labels
+    assert "Bearish Open (below Prev. Close)" in result.labels
+    assert result.bias is Bias.BEARISH
+
+
+def test_bearish_close_below_low_in_down_trend_is_continuation():
+    previous = candle(100, 112, 98, 110)
+    current = candle(109, 110, 95, 96)
+    result = price_action(previous, current, TrendStructure.DOWN)
+    assert "Continuation: Close < Prev. Candle Low" in result.labels
+    assert not any(label.startswith("Reversal") for label in result.labels)
+    assert result.bias is Bias.BEARISH
+
+
+def test_price_action_without_trend_is_neutral_except_confirmation():
     previous = candle(100, 112, 98, 110)
     current = candle(109, 110, 95, 96)
     result = price_action(previous, current)
-    assert "Close < Prev. Bullish Close" in result.labels
-    assert "Close < Prev. Bullish Open" in result.labels
     assert "Close < Prev. Candle Low" in result.labels
-    assert "Bearish Open (below Prev. Close)" in result.labels
+    assert "Confirmation: Close < Prev. Bullish Close" in result.labels
     assert result.bias is Bias.BEARISH
 
 
@@ -447,3 +486,26 @@ def test_open_only_observation_does_not_suppress_the_normal_candle():
     assert result.labels[0] == "Normal Bullish"
     assert "Strong Bullish Open (Open = Low)" in result.labels
     assert "Strong Bullish Candle (no upper & lower wicks)" not in result.labels
+
+
+def test_price_action_gives_each_label_its_own_bias_in_a_mixed_cell():
+    # Bearish previous, bullish current closing above previous High in an up trend: Continuation is bullish.
+    # Open 113 is above the previous High 112 (gap up, neutral fact), so a mixed cell still reports each term separately.
+    previous = candle(110, 112, 100, 102)
+    current = candle(113, 115, 109, 114)
+    result = price_action(previous, current, TrendStructure.UP)
+    assert result.label_biases["Continuation: Close > Prev. Candle High"] is Bias.BULLISH
+    assert result.label_biases["Confirmation: Close > Prev. Bearish Close"] is Bias.BULLISH
+    assert result.label_biases["Gap up"] is Bias.NEUTRAL
+    assert set(result.label_biases) == set(result.labels)
+
+
+def test_price_action_mixed_terms_are_neutral_overall_but_keep_each_label_bias():
+    # Close 104 sits inside the previous range while the trend is up: Continuation Close > Prev. Low is bullish.
+    # Current bearish after a bullish previous candle closing below its Close gives a bearish Confirmation.
+    previous = candle(100, 112, 98, 110)
+    current = candle(111, 111, 100, 103)
+    result = price_action(previous, current, TrendStructure.UP)
+    assert result.bias is Bias.NEUTRAL
+    assert result.label_biases["Confirmation: Close < Prev. Bullish Close"] is Bias.BEARISH
+    assert result.label_biases["Continuation: Close > Prev. Candle Low"] is Bias.BULLISH

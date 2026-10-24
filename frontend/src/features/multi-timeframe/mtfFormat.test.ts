@@ -24,4 +24,12 @@ describe('labelColor', () => {
     expect(labelColor('macd', 'Price > 26', 'bearish')).toBe('error')
     expect(labelColor('bb', 'Price > 26', 'neutral')).toBe('default')
   })
+
+  it('colours Heikin-Ashi solid green and red candles, and yellow when both wicks are present', () => {
+    expect(labelColor('heikin_ashi', 'Heikin-Ashi green, upper wick', 'neutral')).toBe('success')
+    expect(labelColor('heikin_ashi', 'Heikin-Ashi red, lower wick', 'neutral')).toBe('error')
+    expect(labelColor('heikin_ashi', 'Heikin-Ashi green, both wicks', 'neutral')).toBe('gold')
+    expect(labelColor('heikin_ashi', 'Heikin-Ashi doji, both wicks', 'neutral')).toBe('gold')
+    expect(labelColor('heikin_ashi', 'Heikin-Ashi doji, no wicks', 'neutral')).toBe('default')
+  })
 })

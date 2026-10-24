@@ -570,14 +570,25 @@ def test_no_double_pattern_is_labelled_neutral():
     assert cell.bias is Bias.NEUTRAL
 
 
-def test_heikin_ashi_green_with_no_lower_wick_is_labelled_strong():
-    assert heikin_ashi_labels([bar(100, 110, 104, 108)]) == ["Heikin-Ashi green with no lower wick"]
+def test_heikin_ashi_green_reports_the_single_wick_it_has():
+    # PAPA Concept 3: a candle with no lower wick is decisive; the upper wick is reported.
+    assert heikin_ashi_labels([bar(100, 110, 104, 108)]) == ["Heikin-Ashi green, upper wick"]
+
+
+def test_heikin_ashi_green_with_wicks_on_both_sides_is_indecisive():
+    assert heikin_ashi_labels([bar(100, 110, 95, 101)]) == ["Heikin-Ashi green, both wicks"]
+
+
+def test_heikin_ashi_doji_with_both_wicks():
+    assert heikin_ashi_labels([bar(100, 110, 90, 100)]) == ["Heikin-Ashi doji, both wicks"]
 
 
 def test_heikin_ashi_red_in_a_falling_run_is_labelled():
     closes = [100, 98, 96, 94, 92, 90]
     candles = [bar(c + 2, c + 2, c - 0.5, c, i=i) for i, c in enumerate(closes)]
-    assert heikin_ashi_labels(candles)[0].startswith("Heikin-Ashi red")
+    label = heikin_ashi_labels(candles)[0]
+    assert label.startswith("Heikin-Ashi red, ")
+    assert label.endswith(("no wicks", "upper wick", "lower wick", "both wicks"))
 
 
 def test_bollinger_three_sd_excursions_are_labelled():
@@ -623,7 +634,7 @@ def test_checklist_rows_now_automate_volume_and_chart_patterns_without_new_rows(
 
 
 def test_section_two_rows_are_price_action_heikin_ashi_candlestick_then_special_candles():
-    row_ids = [row.id for row in CHECKLIST_ROWS if row.section == "2. Dow Theory Advanced + Price Action"]
+    row_ids = [row.id for row in CHECKLIST_ROWS if row.section == "2. Dow Theory Advanced + Price Action + Candlestick Pattern"]
     assert row_ids == ["price_action", "heikin_ashi", "candlestick_pattern", "special_candles"]
 
 

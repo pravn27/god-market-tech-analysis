@@ -18,12 +18,22 @@ export const biasColor: Record<Bias, string> = {
 
 // EMA price-relation labels such as "Price > 26" (green) and "Price < 26" (red), other labels keep the cell bias colour.
 const emaPriceRelation = /^Price ([<>]) \d+$/
+// Heikin-Ashi labels such as "Heikin-Ashi green, no wicks" (PAPA Concept 3). Both wicks = indecisive = yellow.
+const heikinAshiCandle = /^Heikin-Ashi (green|red|doji), (.+)$/
 
 export function labelColor(rowId: string, label: string, bias: Bias): string {
   if (rowId === 'emas') {
     const relation = emaPriceRelation.exec(label)?.[1]
     if (relation === '>') return 'success'
     if (relation === '<') return 'error'
+  }
+  if (rowId === 'heikin_ashi') {
+    const match = heikinAshiCandle.exec(label)
+    if (match) {
+      if (match[2] === 'both wicks') return 'gold'
+      if (match[1] === 'green') return 'success'
+      if (match[1] === 'red') return 'error'
+    }
   }
   return biasColor[bias]
 }

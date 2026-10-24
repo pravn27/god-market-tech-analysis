@@ -49,7 +49,7 @@ Eight timeframe columns in four layers, exactly as the worksheet. A timeframe th
 | 1 | | Where do you stand in overall trend / context? | Yes |
 | 1 | | Support / resistance levels (horizontal) | Yes (nearest swing levels); angular trendlines manual |
 | 1 | | Significant & event candles | Manual |
-| 2 | Dow Theory Advanced + Price Action | Current candle open/close vs previous candle OHLC | Yes |
+| 2 | Dow Theory Advanced + Price Action + Candlestick Pattern | Current candle open/close vs previous candle OHLC | Yes |
 | 2 | | Heikin-Ashi candle | Yes (own row, neutral bias) |
 | 2 | | Candlestick pattern | Yes |
 | 2 | | Special candles near support/resistance | Yes (location only, neutral bias) |
@@ -174,7 +174,7 @@ Rules for the `candlestick_pattern` row (SMM Summary candlestick list; PAPA Cand
 
 Morning Star (SMM Concepts 1, slide 33) needs a bearish first candle, a middle candle that opens with a gap-down below the first close and whose low is below the first low, and a bullish third candle that opens with a gap-up above the middle candle and closes above the first candle's midpoint. Evening Star is the mirror image (middle gaps up and its high is above the first high; third gaps down and closes below the first midpoint). The middle candle's colour and shape are not required, because SMM says it is "typically" neutral. Detected on the latest two/three candles: Bullish/Bearish Engulf, Bullish Piercing, Bearish Piercing (labelled Bearish Piercing (Dark Cloud Cover), the same PAPA candle), Hammer, Inverted Hammer, Hanging Man, Doji, Spinning Top, Morning Star, Evening Star, Mother candle (latest candle inside the previous candle's range), Bullish Harami and Bearish Harami (neutral; PAPA classes Harami as neutral, and the note says where it is significant: bullish at the bottom of a trend, bearish at the top), High Wave (small body with big wicks on both sides, neutral), Three White Soldiers and Three Black Crows (three candles closing progressively in one direction, each opening inside the prior real body). The label adds `in Support` / `at Resistance` when the location rule above says near. No pattern → `No special candle`, bias neutral.
 
-- **Heikin-Ashi colour** (own row `heikin_ashi`, neutral bias): computed from the closed candles (HA close = (O+H+L+C)/4; HA open = average of the previous HA open and close, seeded with (O+C)/2). The latest HA candle reads `Heikin-Ashi green`, `Heikin-Ashi red` or `Heikin-Ashi doji`. `with no lower wick` / `with no upper wick` is added when the HA body reaches that extreme.
+- **Heikin-Ashi colour** (own row `heikin_ashi`, neutral bias): computed from the closed candles (HA close = (O+H+L+C)/4; HA open = average of the previous HA open and close, seeded with (O+C)/2). The latest HA candle reads `Heikin-Ashi green`, `Heikin-Ashi red` or `Heikin-Ashi doji`, followed by its wicks: `no wicks`, `upper wick`, `lower wick` or `both wicks` (PAPA Concept 3). A wick exists when the HA high is above the body top or the HA low is below the body bottom. Colour in the matrix (frontend `labelColor`): a candle with at most one wick is solid and takes its colour (green or red); a candle with both wicks is indecisive and shows yellow. Concept 2 (combining candles) is not applied to Heikin-Ashi.
 
 ### 3. Bollinger Band (PAPA BB Indicators Setups)
 

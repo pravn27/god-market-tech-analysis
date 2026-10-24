@@ -5,6 +5,7 @@ user's worksheet. Rules are pure functions over plain series so every row of the
 specification's rule tables can be tested directly.
 """
 
+import math
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Dict, List, Mapping, Optional, Sequence
@@ -75,7 +76,7 @@ class ChecklistRow:
 
 
 SECTION_CONTEXT = "1. Overall Context / View / Dow Theory"
-SECTION_PRICE_ACTION = "2. Dow Theory Advanced + Price Action"
+SECTION_PRICE_ACTION = "2. Dow Theory Advanced + Price Action + Candlestick Pattern"
 SECTION_INDICATORS = "3. Check Indicators"
 SECTION_SETUPS = "5. Concepts / Setups / Confirmation"
 
@@ -732,7 +733,12 @@ def chart_pattern_cell(
 
 
 def heikin_ashi_labels(candles: Sequence[Candle]) -> List[str]:
-    """Colour of the latest Heikin-Ashi candle; a candle with no opposite-side wick is labelled as strong."""
+    """Latest Heikin-Ashi candle, its colour and its wicks (PAPA Concept 3).
+
+    Wicks are read from the HA body: an upper wick if the HA high is above the body top, a lower wick if the HA low
+    is below the body bottom. A candle with wicks on both sides is indecisive (yellow in the matrix). A candle with
+    at most one wick is decisive and takes its colour, green or red.
+    """
     if not candles:
         return []
     ha_open = ha_close = ha_high = ha_low = 0.0
@@ -742,13 +748,20 @@ def heikin_ashi_labels(candles: Sequence[Candle]) -> List[str]:
         ha_open, ha_close = open_, close_
         ha_high = max(candle.high, open_, close_)
         ha_low = min(candle.low, open_, close_)
+    body_top, body_bottom = max(ha_open, ha_close), min(ha_open, ha_close)
+    upper_wick = not math.isclose(ha_high, body_top, rel_tol=1e-9, abs_tol=1e-9)
+    lower_wick = not math.isclose(ha_low, body_bottom, rel_tol=1e-9, abs_tol=1e-9)
+    wicks = {
+        (True, True): "both wicks",
+        (True, False): "upper wick",
+        (False, True): "lower wick",
+        (False, False): "no wicks",
+    }[(upper_wick, lower_wick)]
     if ha_close > ha_open:
-        strong = " with no lower wick" if ha_low == ha_open else ""
-        return [f"Heikin-Ashi green{strong}"]
+        return [f"Heikin-Ashi green, {wicks}"]
     if ha_close < ha_open:
-        strong = " with no upper wick" if ha_high == ha_open else ""
-        return [f"Heikin-Ashi red{strong}"]
-    return ["Heikin-Ashi doji"]
+        return [f"Heikin-Ashi red, {wicks}"]
+    return [f"Heikin-Ashi doji, {wicks}"]
 
 
 # Whole timeframe
